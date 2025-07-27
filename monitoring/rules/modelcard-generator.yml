@@ -1,0 +1,246 @@
+# Prometheus alerting rules for Model Card Generator
+
+groups:
+  - name: modelcard-generator-alerts
+    rules:
+      # Application availability alerts
+      - alert: ModelCardGeneratorDown
+        expr: up{job="modelcard-generator"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: modelcard-generator
+        annotations:
+          summary: "Model Card Generator is down"
+          description: "Model Card Generator has been down for more than 1 minute"
+
+      - alert: ModelCardGeneratorHealthCheckFailing
+        expr: mcg_health_check_status != 1
+        for: 2m
+        labels:
+          severity: warning
+          service: modelcard-generator
+        annotations:
+          summary: "Model Card Generator health check failing"
+          description: "Health check for {{ $labels.check_name }} has been failing for more than 2 minutes"
+
+      # Performance alerts
+      - alert: HighCardGenerationLatency
+        expr: histogram_quantile(0.95, rate(mcg_generation_duration_seconds_bucket[5m])) > 30
+        for: 5m
+        labels:
+          severity: warning
+          service: modelcard-generator
+        annotations:
+          summary: "High model card generation latency"
+          description: "95th percentile latency for card generation is {{ $value }}s, exceeding 30s threshold"
+
+      - alert: HighValidationLatency
+        expr: histogram_quantile(0.95, rate(mcg_validation_duration_seconds_bucket[5m])) > 10
+        for: 5m
+        labels:
+          severity: warning
+          service: modelcard-generator
+        annotations:
+          summary: "High validation latency"
+          description: "95th percentile latency for validation is {{ $value }}s, exceeding 10s threshold"
+
+      # Error rate alerts
+      - alert: HighErrorRate
+        expr: rate(mcg_errors_total[5m]) > 0.1
+        for: 3m
+        labels:
+          severity: warning
+          service: modelcard-generator
+        annotations:
+          summary: "High error rate in Model Card Generator"
+          description: "Error rate is {{ $value }} errors/second, exceeding 0.1/second threshold"
+
+      - alert: CriticalErrorRate
+        expr: rate(mcg_errors_total[5m]) > 0.5
+        for: 1m
+        labels:
+          severity: critical
+          service: modelcard-generator
+        annotations:
+          summary: "Critical error rate in Model Card Generator"
+          description: "Error rate is {{ $value }} errors/second, exceeding 0.5/second critical threshold"
+
+      # Resource usage alerts
+      - alert: HighMemoryUsage
+        expr: mcg_memory_usage_bytes / (1024^3) > 2
+        for: 5m
+        labels:
+          severity: warning
+          service: modelcard-generator
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is {{ $value }}GB, exceeding 2GB threshold"
+
+      - alert: HighCPUUsage
+        expr: mcg_cpu_usage_percent > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: modelcard-generator
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is {{ $value }}%, exceeding 80% threshold"
+
+      - alert: HighDiskUsage
+        expr: mcg_disk_usage_bytes / (1024^3) > 10
+        for: 10m
+        labels:
+          severity: warning
+          service: modelcard-generator
+        annotations:
+          summary: "High disk usage"
+          description: "Disk usage is {{ $value }}GB, exceeding 10GB threshold"
+
+      # Business logic alerts
+      - alert: NoCardsGeneratedRecently
+        expr: increase(mcg_cards_generated_total[1h]) == 0
+        for: 30m
+        labels:
+          severity: warning
+          service: modelcard-generator
+        annotations:
+          summary: "No model cards generated recently"
+          description: "No model cards have been generated in the last hour"
+
+      - alert: ValidationFailureSpike
+        expr: rate(mcg_errors_total{error_type="validation"}[5m]) > 0.05
+        for: 3m
+        labels:
+          severity: warning
+          service: modelcard-generator
+        annotations:
+          summary: "Validation failure spike"
+          description: "Validation failures are occurring at {{ $value }} failures/second"
+
+      # Cache and storage alerts
+      - alert: LargeCacheSize
+        expr: mcg_cache_size_bytes / (1024^2) > 500
+        for: 15m
+        labels:
+          severity: warning
+          service: modelcard-generator
+        annotations:
+          summary: "Cache size is large"
+          description: "Cache size is {{ $value }}MB, exceeding 500MB threshold"
+
+      # Operation alerts
+      - alert: TooManyActiveOperations
+        expr: mcg_active_operations > 10
+        for: 10m
+        labels:
+          severity: warning
+          service: modelcard-generator
+        annotations:
+          summary: "Too many active operations"
+          description: "{{ $value }} operations are currently active, exceeding 10 operation threshold"
+
+  - name: modelcard-generator-sli-slo
+    rules:
+      # Service Level Indicators (SLIs)
+      - record: mcg:availability:5m
+        expr: avg_over_time(up{job="modelcard-generator"}[5m])
+
+      - record: mcg:error_rate:5m
+        expr: rate(mcg_errors_total[5m]) / rate(mcg_cards_generated_total[5m])
+
+      - record: mcg:latency_p95:5m
+        expr: histogram_quantile(0.95, rate(mcg_generation_duration_seconds_bucket[5m]))
+
+      - record: mcg:latency_p99:5m
+        expr: histogram_quantile(0.99, rate(mcg_generation_duration_seconds_bucket[5m]))
+
+      - record: mcg:throughput:5m
+        expr: rate(mcg_cards_generated_total[5m])
+
+      # Service Level Objectives (SLOs) - these define our targets
+      - alert: SLOAvailabilityBreach
+        expr: mcg:availability:5m < 0.99
+        for: 5m
+        labels:
+          severity: critical
+          service: modelcard-generator
+          slo: availability
+        annotations:
+          summary: "SLO breach: Availability below 99%"
+          description: "Service availability is {{ $value | humanizePercentage }}, below 99% SLO"
+
+      - alert: SLOErrorRateBreach
+        expr: mcg:error_rate:5m > 0.01
+        for: 5m
+        labels:
+          severity: critical
+          service: modelcard-generator
+          slo: error_rate
+        annotations:
+          summary: "SLO breach: Error rate above 1%"
+          description: "Error rate is {{ $value | humanizePercentage }}, above 1% SLO"
+
+      - alert: SLOLatencyBreach
+        expr: mcg:latency_p95:5m > 10
+        for: 5m
+        labels:
+          severity: critical
+          service: modelcard-generator
+          slo: latency
+        annotations:
+          summary: "SLO breach: 95th percentile latency above 10s"
+          description: "95th percentile latency is {{ $value }}s, above 10s SLO"
+
+  - name: modelcard-generator-capacity
+    rules:
+      # Capacity planning metrics
+      - record: mcg:capacity:requests_per_hour
+        expr: rate(mcg_cards_generated_total[1h]) * 3600
+
+      - record: mcg:capacity:peak_requests_per_hour
+        expr: max_over_time(mcg:capacity:requests_per_hour[7d])
+
+      - record: mcg:capacity:average_requests_per_hour
+        expr: avg_over_time(mcg:capacity:requests_per_hour[7d])
+
+      # Growth tracking
+      - record: mcg:growth:weekly_cards_generated
+        expr: increase(mcg_cards_generated_total[7d])
+
+      - record: mcg:growth:monthly_cards_generated
+        expr: increase(mcg_cards_generated_total[30d])
+
+      # Capacity alerts
+      - alert: NearCapacityLimit
+        expr: mcg:capacity:requests_per_hour > 1000
+        for: 15m
+        labels:
+          severity: warning
+          service: modelcard-generator
+        annotations:
+          summary: "Approaching capacity limit"
+          description: "Current request rate is {{ $value }} requests/hour, approaching capacity limit"
+
+  - name: modelcard-generator-anomaly
+    rules:
+      # Anomaly detection using simple statistical methods
+      - alert: AnomalousLatencyIncrease
+        expr: mcg:latency_p95:5m > 2 * avg_over_time(mcg:latency_p95:5m[1h])
+        for: 5m
+        labels:
+          severity: warning
+          service: modelcard-generator
+        annotations:
+          summary: "Anomalous latency increase detected"
+          description: "Current 95th percentile latency ({{ $value }}s) is more than 2x the hourly average"
+
+      - alert: AnomalousThroughputDrop
+        expr: mcg:throughput:5m < 0.5 * avg_over_time(mcg:throughput:5m[1h])
+        for: 10m
+        labels:
+          severity: warning
+          service: modelcard-generator
+        annotations:
+          summary: "Anomalous throughput drop detected"
+          description: "Current throughput ({{ $value }} req/s) is less than 50% of the hourly average"

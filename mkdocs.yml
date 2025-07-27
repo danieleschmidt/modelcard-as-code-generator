@@ -1,0 +1,139 @@
+site_name: Model Card Generator Documentation
+site_description: Automated generation of Model Cards as executable, versioned artifacts
+site_author: Terragon Labs
+site_url: https://docs.terragonlabs.com/modelcard-generator
+
+repo_name: terragonlabs/modelcard-as-code-generator
+repo_url: https://github.com/terragonlabs/modelcard-as-code-generator
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: blue
+      accent: light blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: blue
+      accent: light blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.highlight
+    - search.share
+    - toc.follow
+    - content.code.copy
+    - content.code.annotate
+
+plugins:
+  - search
+  - mermaid2
+  - include-markdown
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            show_source: true
+            show_root_heading: true
+            heading_level: 2
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - toc:
+      permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:materialx.emoji.twemoji
+      emoji_generator: !!python/name:materialx.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.magiclink:
+      repo_url_shorthand: true
+      user: terragonlabs
+      repo: modelcard-as-code-generator
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: getting-started/installation.md
+    - Quick Start: getting-started/quickstart.md
+    - Configuration: getting-started/configuration.md
+  - User Guide:
+    - Overview: user-guide/overview.md
+    - Generating Cards: user-guide/generating-cards.md
+    - Validation: user-guide/validation.md
+    - Templates: user-guide/templates.md
+    - Formats: user-guide/formats.md
+  - Integration:
+    - CI/CD: integration/cicd.md
+    - ML Platforms: integration/ml-platforms.md
+    - GitHub Actions: integration/github-actions.md
+    - Docker: integration/docker.md
+  - API Reference:
+    - CLI: api/cli.md
+    - Python API: api/python.md
+    - Configuration: api/configuration.md
+  - Development:
+    - Contributing: development/contributing.md
+    - Architecture: development/architecture.md
+    - Testing: development/testing.md
+    - Security: development/security.md
+  - Examples:
+    - Basic Usage: examples/basic.md
+    - Advanced: examples/advanced.md
+    - Templates: examples/templates.md
+  - About:
+    - Changelog: about/changelog.md
+    - License: about/license.md
+    - Support: about/support.md
+
+extra:
+  version:
+    provider: mike
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/terragonlabs/modelcard-as-code-generator
+    - icon: fontawesome/brands/twitter
+      link: https://twitter.com/terragonlabs
+    - icon: fontawesome/brands/linkedin
+      link: https://linkedin.com/company/terragonlabs
+
+extra_css:
+  - stylesheets/extra.css
+
+extra_javascript:
+  - javascripts/extra.js
