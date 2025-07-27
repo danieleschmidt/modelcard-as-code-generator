@@ -1,0 +1,539 @@
+# Security Scanning and Compliance Workflow
+# Comprehensive security analysis for Model Card Generator
+
+name: Security
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run security scans daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      scan_type:
+        description: 'Type of security scan to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - dependencies
+          - code
+          - containers
+          - secrets
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  # ==========================================================================
+  # Dependency Security Scanning
+  # ==========================================================================
+  dependency-scan:
+    name: Dependency Security Scan
+    runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type == 'dependencies' || github.event.inputs.scan_type == 'all' || github.event.inputs.scan_type == null
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install safety pip-audit
+
+      - name: Run Safety check
+        run: |
+          safety check --json --output safety-report.json
+          safety check --short-report
+
+      - name: Run pip-audit
+        run: |
+          pip-audit --format=json --output=pip-audit-report.json
+          pip-audit --format=cyclonedx-json --output=pip-audit-sbom.json
+
+      - name: GitHub Advisory Database check
+        uses: actions/dependency-review-action@v3
+        if: github.event_name == 'pull_request'
+        with:
+          fail-on-severity: moderate
+
+      - name: Upload dependency scan results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: dependency-scan-results
+          path: |
+            safety-report.json
+            pip-audit-report.json
+            pip-audit-sbom.json
+          retention-days: 30
+
+  # ==========================================================================
+  # SAST (Static Application Security Testing)
+  # ==========================================================================
+  sast-scan:
+    name: SAST Code Security Scan
+    runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type == 'code' || github.event.inputs.scan_type == 'all' || github.event.inputs.scan_type == null
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install SAST tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit semgrep
+
+      - name: Run Bandit scan
+        run: |
+          bandit -r src/ -f json -o bandit-report.json
+          bandit -r src/ -f sarif -o bandit-results.sarif
+
+      - name: Run Semgrep scan
+        run: |
+          semgrep --config=auto --json --output=semgrep-report.json src/
+          semgrep --config=auto --sarif --output=semgrep-results.sarif src/
+
+      - name: Upload Bandit results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: bandit-results.sarif
+          category: bandit
+
+      - name: Upload Semgrep results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: semgrep-results.sarif
+          category: semgrep
+
+      - name: Upload SAST scan results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: sast-scan-results
+          path: |
+            bandit-report.json
+            bandit-results.sarif
+            semgrep-report.json
+            semgrep-results.sarif
+          retention-days: 30
+
+  # ==========================================================================
+  # CodeQL Analysis
+  # ==========================================================================
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type == 'code' || github.event.inputs.scan_type == 'all' || github.event.inputs.scan_type == null
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'python' ]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended,security-and-quality
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v2
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+        with:
+          category: "/language:${{matrix.language}}"
+
+  # ==========================================================================
+  # Container Security Scanning
+  # ==========================================================================
+  container-scan:
+    name: Container Security Scan
+    runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type == 'containers' || github.event.inputs.scan_type == 'all' || github.event.inputs.scan_type == null
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build container image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: runtime
+          load: true
+          tags: mcg:security-scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'mcg:security-scan'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Run Trivy config scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'config'
+          format: 'sarif'
+          output: 'trivy-config-results.sarif'
+
+      - name: Run Grype vulnerability scanner
+        uses: anchore/scan-action@v3
+        id: grype-scan
+        with:
+          image: 'mcg:security-scan'
+          format: sarif
+          output-file: grype-results.sarif
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+          category: trivy-container
+
+      - name: Upload Trivy config scan results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-config-results.sarif'
+          category: trivy-config
+
+      - name: Upload Grype scan results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'grype-results.sarif'
+          category: grype
+
+      - name: Upload container scan artifacts
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: container-scan-results
+          path: |
+            trivy-results.sarif
+            trivy-config-results.sarif
+            grype-results.sarif
+          retention-days: 30
+
+  # ==========================================================================
+  # Secret Scanning
+  # ==========================================================================
+  secret-scan:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type == 'secrets' || github.event.inputs.scan_type == 'all' || github.event.inputs.scan_type == null
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for secret scanning
+
+      - name: Install secret scanning tools
+        run: |
+          # Install gitleaks
+          wget -O gitleaks.tar.gz https://github.com/zricethezav/gitleaks/releases/download/v8.18.0/gitleaks_8.18.0_linux_x64.tar.gz
+          tar -xzf gitleaks.tar.gz
+          chmod +x gitleaks
+          sudo mv gitleaks /usr/local/bin/
+
+          # Install truffleHog
+          pip install truffleHog3
+
+      - name: Run gitleaks scan
+        run: |
+          gitleaks detect --source . --report-format sarif --report-path gitleaks-results.sarif --verbose
+
+      - name: Run TruffleHog scan
+        run: |
+          truffleHog3 --format json --output truffleHog-results.json .
+
+      - name: Upload secret scan results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: gitleaks-results.sarif
+          category: gitleaks
+
+      - name: Upload secret scan artifacts
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: secret-scan-results
+          path: |
+            gitleaks-results.sarif
+            truffleHog-results.json
+          retention-days: 30
+
+  # ==========================================================================
+  # Infrastructure as Code Security
+  # ==========================================================================
+  iac-scan:
+    name: Infrastructure Security Scan
+    runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type == 'all' || github.event.inputs.scan_type == null
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Checkov scan
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          framework: dockerfile,github_actions,secrets
+          output_format: sarif
+          output_file_path: checkov-results.sarif
+
+      - name: Upload Checkov scan results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: checkov-results.sarif
+          category: checkov
+
+  # ==========================================================================
+  # License Compliance Scanning
+  # ==========================================================================
+  license-scan:
+    name: License Compliance Scan
+    runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type == 'all' || github.event.inputs.scan_type == null
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies and license tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pip-licenses licensecheck
+
+      - name: Generate license report
+        run: |
+          pip-licenses --format=json --output-file=licenses-report.json
+          pip-licenses --format=csv --output-file=licenses-report.csv
+          licensecheck --zero
+
+      - name: Check for incompatible licenses
+        run: |
+          # Check for GPL and other copyleft licenses that might conflict
+          python -c "
+          import json
+          with open('licenses-report.json', 'r') as f:
+              licenses = json.load(f)
+          
+          copyleft_licenses = ['GPL', 'AGPL', 'LGPL']
+          incompatible = []
+          
+          for pkg in licenses:
+              license_name = pkg.get('License', '')
+              for cl in copyleft_licenses:
+                  if cl in license_name.upper():
+                      incompatible.append(f'{pkg[\"Name\"]} - {license_name}')
+          
+          if incompatible:
+              print('WARNING: Found potentially incompatible licenses:')
+              for lic in incompatible:
+                  print(f'  - {lic}')
+          else:
+              print('✅ No incompatible licenses found')
+          "
+
+      - name: Upload license scan results
+        uses: actions/upload-artifact@v3
+        with:
+          name: license-scan-results
+          path: |
+            licenses-report.json
+            licenses-report.csv
+          retention-days: 30
+
+  # ==========================================================================
+  # SBOM (Software Bill of Materials) Generation
+  # ==========================================================================
+  sbom-generation:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type == 'all' || github.event.inputs.scan_type == null
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Generate SBOM with syft
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: sbom.spdx.json
+
+      - name: Generate SBOM with cyclonedx
+        run: |
+          pip install cyclonedx-bom
+          cyclonedx-py -o sbom.cyclonedx.json
+
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: sbom-reports
+          path: |
+            sbom.spdx.json
+            sbom.cyclonedx.json
+          retention-days: 90
+
+  # ==========================================================================
+  # Security Policy Compliance
+  # ==========================================================================
+  policy-compliance:
+    name: Security Policy Compliance
+    runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type == 'all' || github.event.inputs.scan_type == null
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check security policy files
+        run: |
+          echo "🔍 Checking for required security policy files..."
+          
+          # Check for SECURITY.md
+          if [ -f "SECURITY.md" ] || [ -f ".github/SECURITY.md" ]; then
+            echo "✅ SECURITY.md found"
+          else
+            echo "❌ SECURITY.md not found"
+            exit 1
+          fi
+          
+          # Check for vulnerability disclosure policy
+          if grep -q -i "vulnerability\|security" SECURITY.md .github/SECURITY.md 2>/dev/null; then
+            echo "✅ Vulnerability disclosure policy found"
+          else
+            echo "❌ Vulnerability disclosure policy not found"
+            exit 1
+          fi
+
+      - name: OpenSSF Scorecard analysis
+        uses: ossf/scorecard-action@v2.3.1
+        with:
+          results_file: scorecard-results.sarif
+          results_format: sarif
+          publish_results: true
+
+      - name: Upload OpenSSF Scorecard results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: scorecard-results.sarif
+          category: scorecard
+
+  # ==========================================================================
+  # Security Summary Report
+  # ==========================================================================
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [dependency-scan, sast-scan, codeql, container-scan, secret-scan, iac-scan, license-scan, sbom-generation, policy-compliance]
+    steps:
+      - name: Download all scan results
+        uses: actions/download-artifact@v3
+
+      - name: Generate security summary
+        run: |
+          echo "# Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Scan Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "**Repository:** ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch/PR:** ${{ github.ref }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          echo "## Scan Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Check results of each scan
+          scans=(
+            "dependency-scan:Dependency Security"
+            "sast-scan:SAST Code Analysis"
+            "codeql:CodeQL Analysis"
+            "container-scan:Container Security"
+            "secret-scan:Secret Scanning"
+            "iac-scan:Infrastructure Security"
+            "license-scan:License Compliance"
+            "sbom-generation:SBOM Generation"
+            "policy-compliance:Policy Compliance"
+          )
+          
+          for scan in "${scans[@]}"; do
+            job_name=$(echo $scan | cut -d: -f1)
+            display_name=$(echo $scan | cut -d: -f2)
+            
+            case "${{ needs.$job_name.result }}" in
+              "success")
+                echo "✅ **$display_name:** Passed" >> $GITHUB_STEP_SUMMARY
+                ;;
+              "failure")
+                echo "❌ **$display_name:** Failed" >> $GITHUB_STEP_SUMMARY
+                ;;
+              "skipped")
+                echo "⏭️ **$display_name:** Skipped" >> $GITHUB_STEP_SUMMARY
+                ;;
+              *)
+                echo "❓ **$display_name:** Unknown" >> $GITHUB_STEP_SUMMARY
+                ;;
+            esac
+          done
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Review security findings in the Security tab" >> $GITHUB_STEP_SUMMARY
+          echo "- Check artifact downloads for detailed reports" >> $GITHUB_STEP_SUMMARY
+          echo "- Address any critical or high severity issues" >> $GITHUB_STEP_SUMMARY
+          echo "- Update dependencies if vulnerabilities found" >> $GITHUB_STEP_SUMMARY
+
+      - name: Security scan notification
+        if: failure()
+        run: |
+          echo "🚨 Security scan failures detected!"
+          echo "Please review the security findings and address any critical issues."
+          echo "Check the Security tab in GitHub for detailed vulnerability reports."

@@ -205,3 +205,122 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# =============================================================================
+# Model Card Generator Specific
+# =============================================================================
+
+# Generated model cards
+MODEL_CARD.md
+model_card.md
+*.model_card.md
+
+# Output directories
+output/
+exports/
+generated/
+
+# Cache directories
+.mcg_cache/
+.template_cache/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Configuration files with secrets
+.env.local
+.env.production
+config.local.yml
+
+# ML Platform specific
+# MLflow
+mlruns/
+mlartifacts/
+
+# Weights & Biases
+wandb/
+
+# DVC
+.dvc/
+*.dvc
+
+# Model files
+*.pkl
+*.pickle
+*.joblib
+*.h5
+*.hdf5
+*.pb
+*.onnx
+*.tflite
+*.bin
+
+# Dataset files
+*.csv
+*.json
+*.jsonl
+*.parquet
+*.arrow
+!tests/fixtures/*.json
+!tests/fixtures/*.csv
+!examples/*.json
+!schemas/*.json
+
+# Large files
+*.zip
+*.tar.gz
+*.7z
+
+# =============================================================================
+# Development Tools
+# =============================================================================
+
+# Pre-commit
+.pre-commit-config.local.yaml
+
+# Profiling
+*.prof
+*.pstats
+
+# Performance monitoring
+perf.data*
+
+# Security scanning
+bandit-report.json
+safety-report.json
+.secrets.baseline
+
+# Linting reports
+flake8-report.txt
+mypy-report.txt
+pylint-report.txt
+
+# =============================================================================
+# Documentation
+# =============================================================================
+
+# MkDocs
+site/
+docs/site/
+
+# Sphinx
+docs/_build/
+docs/_static/
+docs/_templates/
+
+# =============================================================================
+# CI/CD
+# =============================================================================
+
+# GitHub Actions artifacts
+.github/workflows/artifacts/
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Kubernetes
+*.kubeconfig
+k8s-secrets.yml

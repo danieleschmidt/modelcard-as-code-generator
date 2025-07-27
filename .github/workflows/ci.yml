@@ -1,0 +1,525 @@
+# Continuous Integration Workflow for Model Card Generator
+# Comprehensive testing, quality checks, and security scanning
+
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run CI daily at 6 AM UTC to catch dependency issues
+    - cron: '0 6 * * *'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_DEFAULT_VERSION: "3.11"
+  CACHE_VERSION: "v1"
+
+jobs:
+  # ==========================================================================
+  # Pre-checks and fast validation
+  # ==========================================================================
+  pre-checks:
+    name: Pre-checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      should-run-tests: ${{ steps.changes.outputs.src == 'true' || steps.changes.outputs.tests == 'true' || github.event_name == 'schedule' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for changes
+        uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            src:
+              - 'src/**'
+              - 'pyproject.toml'
+              - 'setup.py'
+              - 'requirements*.txt'
+            tests:
+              - 'tests/**'
+            docs:
+              - 'docs/**'
+              - 'mkdocs.yml'
+              - '*.md'
+            workflows:
+              - '.github/workflows/**'
+
+      - name: Validate YAML files
+        run: |
+          sudo apt-get update && sudo apt-get install -y yamllint
+          find . -name "*.yml" -o -name "*.yaml" | xargs yamllint -c .yamllint.yml
+
+      - name: Validate JSON files
+        run: |
+          find . -name "*.json" | xargs -I {} sh -c 'echo "Checking {}" && python -m json.tool {} > /dev/null'
+
+      - name: Check file permissions
+        run: |
+          # Check that shell scripts are executable
+          find . -name "*.sh" -type f -exec test -x {} \; -print | while read file; do
+            echo "✓ $file is executable"
+          done
+          
+          # Check that Python files are not executable (except __main__.py)
+          find . -name "*.py" -type f -executable | grep -v "__main__.py" | while read file; do
+            echo "⚠️ $file should not be executable"
+            exit 1
+          done || true
+
+  # ==========================================================================
+  # Code Quality and Linting
+  # ==========================================================================
+  quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: needs.pre-checks.outputs.should-run-tests == 'true'
+    needs: pre-checks
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_DEFAULT_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,test]"
+
+      - name: Run black (code formatting)
+        run: black --check --diff src/ tests/
+
+      - name: Run isort (import sorting)
+        run: isort --check-only --diff src/ tests/
+
+      - name: Run flake8 (linting)
+        run: |
+          flake8 src/ tests/ --format=github --statistics
+          flake8 src/ tests/ --format=json --output-file=flake8-report.json
+
+      - name: Run ruff (fast linting)
+        run: ruff check src/ tests/ --format=github
+
+      - name: Run mypy (type checking)
+        run: mypy src/ --ignore-missing-imports
+
+      - name: Upload quality reports
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: quality-reports
+          path: |
+            flake8-report.json
+            mypy-report.txt
+          retention-days: 7
+
+  # ==========================================================================
+  # Security Scanning
+  # ==========================================================================
+  security:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: needs.pre-checks.outputs.should-run-tests == 'true'
+    needs: pre-checks
+    permissions:
+      security-events: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_DEFAULT_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit safety
+
+      - name: Run Bandit (security linting)
+        run: |
+          bandit -r src/ -f json -o bandit-report.json
+          bandit -r src/ -f txt
+
+      - name: Run Safety (dependency security)
+        run: |
+          safety check --json --output safety-report.json
+          safety check
+
+      - name: Run CodeQL Analysis
+        uses: github/codeql-action/init@v2
+        with:
+          languages: python
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+
+      - name: Upload security reports
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: security-reports
+          path: |
+            bandit-report.json
+            safety-report.json
+          retention-days: 30
+
+  # ==========================================================================
+  # Unit Tests Matrix
+  # ==========================================================================
+  test-unit:
+    name: Unit Tests (Python ${{ matrix.python-version }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    if: needs.pre-checks.outputs.should-run-tests == 'true'
+    needs: pre-checks
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        exclude:
+          # Reduce matrix size for faster CI
+          - os: windows-latest
+            python-version: "3.9"
+          - os: macos-latest
+            python-version: "3.9"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+
+      - name: Run unit tests
+        run: |
+          pytest tests/unit/ \
+            --junitxml=junit-${{ matrix.os }}-${{ matrix.python-version }}.xml \
+            --cov=modelcard_generator \
+            --cov-report=xml:coverage-${{ matrix.os }}-${{ matrix.python-version }}.xml \
+            --cov-report=term \
+            -v \
+            -m "not slow and not network"
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: test-results-${{ matrix.os }}-${{ matrix.python-version }}
+          path: |
+            junit-*.xml
+            coverage-*.xml
+          retention-days: 7
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == env.PYTHON_DEFAULT_VERSION
+        with:
+          file: coverage-${{ matrix.os }}-${{ matrix.python-version }}.xml
+          flags: unit-tests
+          name: codecov-${{ matrix.os }}-${{ matrix.python-version }}
+
+  # ==========================================================================
+  # Integration Tests
+  # ==========================================================================
+  test-integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: needs.pre-checks.outputs.should-run-tests == 'true'
+    needs: pre-checks
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_DEFAULT_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test,integrations]"
+
+      - name: Set up test environment
+        run: |
+          mkdir -p test-output
+          cp tests/fixtures/*.json test-output/ || true
+
+      - name: Run integration tests
+        env:
+          MCG_ENVIRONMENT: test
+          MCG_OUTPUT_DIR: ./test-output
+          REDIS_URL: redis://localhost:6379/0
+        run: |
+          pytest tests/integration/ \
+            --junitxml=junit-integration.xml \
+            --cov=modelcard_generator \
+            --cov-report=xml:coverage-integration.xml \
+            --cov-report=term \
+            -v \
+            -m "not network"
+
+      - name: Upload integration test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: integration-test-results
+          path: |
+            junit-integration.xml
+            coverage-integration.xml
+            test-output/
+          retention-days: 7
+
+  # ==========================================================================
+  # Docker Build and Test
+  # ==========================================================================
+  docker-test:
+    name: Docker Build & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    if: needs.pre-checks.outputs.should-run-tests == 'true'
+    needs: pre-checks
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: runtime
+          push: false
+          tags: mcg:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILD_DATE=${{ github.run_id }}
+            VERSION=test-${{ github.sha }}
+            VCS_REF=${{ github.sha }}
+
+      - name: Test Docker image
+        run: |
+          docker run --rm mcg:test mcg --version
+          docker run --rm mcg:test mcg --help
+
+      - name: Run tests in Docker
+        run: |
+          docker build --target cicd -t mcg:test-ci .
+          docker run --rm \
+            -v ${{ github.workspace }}/test-results:/app/test-results \
+            mcg:test-ci
+
+      - name: Upload Docker test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: docker-test-results
+          path: test-results/
+          retention-days: 7
+
+  # ==========================================================================
+  # Performance and Load Tests
+  # ==========================================================================
+  performance:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: needs.pre-checks.outputs.should-run-tests == 'true' && github.event_name != 'schedule'
+    needs: pre-checks
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_DEFAULT_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+          pip install pytest-benchmark memory-profiler
+
+      - name: Run performance tests
+        run: |
+          pytest tests/ \
+            -m "slow" \
+            --benchmark-json=benchmark-results.json \
+            -v
+
+      - name: Upload performance results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: performance-results
+          path: benchmark-results.json
+          retention-days: 7
+
+  # ==========================================================================
+  # Documentation Build
+  # ==========================================================================
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: needs.pre-checks.outputs.should-run-tests == 'true'
+    needs: pre-checks
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_DEFAULT_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[docs]"
+
+      - name: Build documentation
+        run: |
+          mkdocs build --strict
+
+      - name: Test documentation links
+        run: |
+          # Install linkchecker
+          pip install linkchecker
+          # Start local server and check links
+          mkdocs serve --dev-addr localhost:8000 &
+          sleep 5
+          linkchecker http://localhost:8000 || true
+
+      - name: Upload documentation
+        uses: actions/upload-artifact@v3
+        with:
+          name: documentation
+          path: site/
+          retention-days: 7
+
+  # ==========================================================================
+  # Package Build and Validation
+  # ==========================================================================
+  build:
+    name: Build Package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [quality, security]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Needed for setuptools_scm
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_DEFAULT_VERSION }}
+          cache: 'pip'
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install build twine setuptools_scm
+
+      - name: Build package
+        run: python -m build
+
+      - name: Check package
+        run: |
+          twine check dist/*
+          python -m pip install dist/*.whl
+          mcg --version
+
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: python-package
+          path: dist/
+          retention-days: 7
+
+  # ==========================================================================
+  # Final Status Check
+  # ==========================================================================
+  ci-success:
+    name: CI Success
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [pre-checks, quality, security, test-unit, test-integration, docker-test, docs, build]
+    steps:
+      - name: Check all jobs
+        run: |
+          echo "Pre-checks: ${{ needs.pre-checks.result }}"
+          echo "Quality: ${{ needs.quality.result }}"
+          echo "Security: ${{ needs.security.result }}"
+          echo "Unit tests: ${{ needs.test-unit.result }}"
+          echo "Integration tests: ${{ needs.test-integration.result }}"
+          echo "Docker tests: ${{ needs.docker-test.result }}"
+          echo "Documentation: ${{ needs.docs.result }}"
+          echo "Build: ${{ needs.build.result }}"
+
+          # Check if any required job failed
+          if [[ "${{ needs.quality.result }}" == "failure" || \
+                "${{ needs.security.result }}" == "failure" || \
+                "${{ needs.test-unit.result }}" == "failure" || \
+                "${{ needs.test-integration.result }}" == "failure" || \
+                "${{ needs.docker-test.result }}" == "failure" || \
+                "${{ needs.build.result }}" == "failure" ]]; then
+            echo "❌ CI failed"
+            exit 1
+          else
+            echo "✅ CI passed"
+          fi
+
+      - name: Post status to commit
+        if: github.event_name == 'push'
+        run: |
+          echo "CI completed successfully for commit ${{ github.sha }}"

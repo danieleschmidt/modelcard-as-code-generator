@@ -1,0 +1,85 @@
+# YAML Linting Configuration for Model Card Generator
+
+extends: default
+
+rules:
+  # Line length
+  line-length:
+    max: 120
+    level: warning
+  
+  # Indentation
+  indentation:
+    spaces: 2
+    indent-sequences: true
+    check-multi-line-strings: false
+  
+  # Comments
+  comments:
+    min-spaces-from-content: 1
+    require-starting-space: true
+  
+  # Empty lines
+  empty-lines:
+    max: 2
+    max-start: 0
+    max-end: 1
+  
+  # Key ordering
+  key-ordering: disable
+  
+  # Truthy values
+  truthy:
+    allowed-values: ['true', 'false', 'yes', 'no']
+    check-keys: false
+  
+  # Brackets
+  brackets:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+  
+  # Braces
+  braces:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+  
+  # Document delimiters
+  document-start: disable
+  document-end: disable
+  
+  # Colons
+  colons:
+    max-spaces-before: 0
+    max-spaces-after: 1
+  
+  # Commas
+  commas:
+    max-spaces-before: 0
+    max-spaces-after: 1
+  
+  # Hyphens
+  hyphens:
+    max-spaces-after: 1
+  
+  # Empty values
+  empty-values:
+    forbid-in-block-mappings: false
+    forbid-in-flow-mappings: true
+  
+  # Float values
+  float-values: disable
+  
+  # Quoted strings
+  quoted-strings:
+    quote-type: any
+    required: false
+  
+  # Octal values
+  octal-values: disable
+
+# File-specific overrides
+ignore: |
+  .github/workflows/*.yml
+  .github/workflows/*.yaml
+  docker-compose*.yml
+  docker-compose*.yaml

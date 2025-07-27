@@ -1,0 +1,242 @@
+{
+  "evaluation_results": {
+    "model_name": "sentiment-classifier-bert",
+    "model_version": "1.2.0",
+    "evaluation_date": "2025-01-15T14:30:00Z",
+    "evaluator": "ML Team",
+    "environment": {
+      "python_version": "3.9.7",
+      "framework": "pytorch",
+      "framework_version": "1.11.0",
+      "cuda_version": "11.7",
+      "device": "Tesla V100"
+    },
+    "dataset": {
+      "name": "customer_reviews_test",
+      "version": "2.1.0",
+      "size": 15000,
+      "source": "customer_feedback_2024",
+      "splits": {
+        "test": 15000
+      },
+      "features": [
+        "review_text",
+        "rating",
+        "product_category",
+        "customer_segment"
+      ],
+      "label_distribution": {
+        "positive": 0.45,
+        "neutral": 0.35,
+        "negative": 0.20
+      }
+    },
+    "metrics": {
+      "overall": {
+        "accuracy": 0.9245,
+        "precision_macro": 0.8923,
+        "recall_macro": 0.9156,
+        "f1_macro": 0.9038,
+        "f1_weighted": 0.9201,
+        "roc_auc_macro": 0.9567,
+        "log_loss": 0.1834,
+        "matthews_corrcoef": 0.8456
+      },
+      "per_class": {
+        "positive": {
+          "precision": 0.9456,
+          "recall": 0.9234,
+          "f1_score": 0.9344,
+          "support": 6750
+        },
+        "neutral": {
+          "precision": 0.8567,
+          "recall": 0.8923,
+          "f1_score": 0.8742,
+          "support": 5250
+        },
+        "negative": {
+          "precision": 0.8745,
+          "recall": 0.9312,
+          "f1_score": 0.9020,
+          "support": 3000
+        }
+      },
+      "confusion_matrix": [
+        [6234, 312, 204],
+        [298, 4685, 267],
+        [128, 79, 2793]
+      ],
+      "performance": {
+        "inference_time_ms": {
+          "mean": 23.4,
+          "std": 5.2,
+          "min": 18.1,
+          "max": 45.7,
+          "p50": 22.8,
+          "p95": 34.2,
+          "p99": 41.5
+        },
+        "throughput_samples_per_second": 187.3,
+        "memory_usage_mb": 1247,
+        "model_size_mb": 438.2
+      }
+    },
+    "robustness_tests": {
+      "adversarial": {
+        "attack_success_rate": 0.12,
+        "certified_accuracy": 0.8734,
+        "attacks_tested": [
+          "textfooler",
+          "bertattack",
+          "pwws"
+        ]
+      },
+      "out_of_distribution": {
+        "accuracy_drop": 0.15,
+        "domains_tested": [
+          "technical_manuals",
+          "legal_documents",
+          "medical_texts"
+        ]
+      },
+      "noise_robustness": {
+        "gaussian_noise_tolerance": 0.05,
+        "typo_tolerance": 0.18
+      }
+    },
+    "fairness_metrics": {
+      "demographic_parity": {
+        "by_gender": {
+          "male": 0.923,
+          "female": 0.918,
+          "difference": 0.005
+        },
+        "by_age_group": {
+          "18-30": 0.931,
+          "31-50": 0.924,
+          "51-65": 0.912,
+          "65+": 0.908
+        }
+      },
+      "equalized_odds": {
+        "by_gender": {
+          "male": 0.915,
+          "female": 0.919,
+          "difference": -0.004
+        }
+      },
+      "bias_amplification": {
+        "sentiment_bias": 0.03,
+        "length_bias": 0.07
+      }
+    }
+  },
+  "training_metadata": {
+    "training_date": "2025-01-10T09:00:00Z",
+    "training_duration_hours": 12.5,
+    "total_epochs": 8,
+    "early_stopping_epoch": 8,
+    "best_validation_loss": 0.1456,
+    "hyperparameters": {
+      "learning_rate": 2e-5,
+      "batch_size": 32,
+      "max_sequence_length": 512,
+      "warmup_steps": 1000,
+      "weight_decay": 0.01,
+      "dropout": 0.1,
+      "optimizer": "adamw",
+      "scheduler": "linear"
+    },
+    "data_preprocessing": {
+      "tokenization": "bert-base-uncased",
+      "text_cleaning": [
+        "remove_urls",
+        "remove_mentions",
+        "remove_extra_whitespace"
+      ],
+      "augmentation": [
+        "synonym_replacement",
+        "random_deletion",
+        "back_translation"
+      ],
+      "validation_split": 0.15,
+      "stratified": true
+    },
+    "hardware": {
+      "gpus": 4,
+      "gpu_model": "Tesla V100",
+      "total_gpu_memory_gb": 128,
+      "cpu_cores": 32,
+      "ram_gb": 256
+    },
+    "carbon_footprint": {
+      "total_emissions_kg_co2": 15.7,
+      "compute_time_hours": 50.0,
+      "cloud_provider": "aws",
+      "region": "us-west-2",
+      "instance_type": "p3.8xlarge"
+    }
+  },
+  "model_artifacts": {
+    "model_file": "sentiment_classifier_v1.2.0.bin",
+    "config_file": "config.json",
+    "tokenizer_files": [
+      "tokenizer.json",
+      "vocab.txt",
+      "special_tokens_map.json"
+    ],
+    "checkpoint_size_mb": 438.2,
+    "dependencies": {
+      "transformers": "4.25.1",
+      "torch": "1.11.0",
+      "numpy": "1.21.0",
+      "pandas": "1.3.3"
+    }
+  },
+  "compliance_info": {
+    "data_privacy": {
+      "pii_removed": true,
+      "anonymization_method": "k_anonymity",
+      "retention_policy": "2_years",
+      "gdpr_compliant": true
+    },
+    "model_governance": {
+      "approval_status": "approved",
+      "approved_by": "AI Ethics Committee",
+      "approval_date": "2025-01-12T16:00:00Z",
+      "review_schedule": "quarterly",
+      "risk_assessment": "medium",
+      "intended_use": "customer_service_automation",
+      "prohibited_uses": [
+        "medical_diagnosis",
+        "legal_decisions",
+        "financial_credit_scoring"
+      ]
+    },
+    "regulatory_compliance": {
+      "frameworks": [
+        "eu_ai_act",
+        "iso_23053",
+        "nist_ai_rmf"
+      ],
+      "audit_trail": true,
+      "explainability_required": true,
+      "human_oversight_required": true
+    }
+  },
+  "known_limitations": [
+    "Performance degrades on text shorter than 10 words",
+    "May exhibit bias towards formal language patterns",
+    "Not suitable for real-time applications requiring <10ms latency",
+    "Limited performance on domain-specific jargon",
+    "Potential issues with sarcasm detection"
+  ],
+  "recommendations": [
+    "Use ensemble with rule-based system for edge cases",
+    "Implement regular bias monitoring in production",
+    "Consider domain adaptation for specialized use cases",
+    "Monitor drift on text length distribution",
+    "Implement human review for high-stakes decisions"
+  ]
+}
