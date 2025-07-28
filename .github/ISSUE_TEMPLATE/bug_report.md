@@ -1,13 +1,13 @@
 ---
-name: Bug Report
+name: Bug report
 about: Create a report to help us improve
 title: '[BUG] '
-labels: ['bug', 'needs-triage']
+labels: ['bug']
 assignees: ''
 ---
 
 ## Bug Description
-A clear description of what the bug is.
+A clear and concise description of what the bug is.
 
 ## Steps to Reproduce
 1. Go to '...'
@@ -16,14 +16,14 @@ A clear description of what the bug is.
 4. See error
 
 ## Expected Behavior
-What you expected to happen.
+A clear and concise description of what you expected to happen.
 
 ## Actual Behavior
-What actually happened.
+A clear and concise description of what actually happened.
 
 ## Environment
 - OS: [e.g. Ubuntu 20.04]
-- Python Version: [e.g. 3.9.0]  
+- Python Version: [e.g. 3.11]
 - Package Version: [e.g. 1.0.0]
 
 ## Additional Context
