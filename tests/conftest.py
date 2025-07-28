@@ -304,6 +304,18 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "gpu: marks tests as requiring GPU"
     )
+    config.addinivalue_line(
+        "markers", "performance: marks tests as performance benchmarks"
+    )
+    config.addinivalue_line(
+        "markers", "security: marks tests as security tests"
+    )
+    config.addinivalue_line(
+        "markers", "smoke: marks tests as smoke tests for quick validation"
+    )
+    config.addinivalue_line(
+        "markers", "regression: marks tests as regression tests"
+    )
 
 
 def pytest_collection_modifyitems(config, items):
