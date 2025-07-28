@@ -1,0 +1,178 @@
+version: '3.8'
+
+services:
+  development:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: development
+      args:
+        BUILD_DATE: ${BUILD_DATE:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}
+        VERSION: ${VERSION:-dev}
+        VCS_REF: ${VCS_REF:-$(git rev-parse HEAD)}
+    
+    volumes:
+      - ../:/workspace:cached
+      - mcg-vscode-extensions:/home/mcg/.vscode-server/extensions
+      - mcg-pip-cache:/home/mcg/.cache/pip
+      - mcg-pytest-cache:/workspace/.pytest_cache
+      - mcg-mypy-cache:/workspace/.mypy_cache
+      - mcg-ruff-cache:/home/mcg/.cache/ruff
+      - mcg-pre-commit-cache:/home/mcg/.cache/pre-commit
+    
+    environment:
+      - MCG_ENVIRONMENT=development
+      - MCG_LOG_LEVEL=DEBUG
+      - MCG_DEBUG=true
+      - PYTHONPATH=/workspace/src
+      - PIP_USER=false
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+    
+    ports:
+      - "8000:8000"  # Development server
+      - "8080:8080"  # API server
+      - "9090:9090"  # Metrics
+      - "8888:8888"  # Jupyter
+    
+    working_dir: /workspace
+    
+    # Keep container running
+    command: sleep infinity
+    
+    # Enable init to handle zombie processes
+    init: true
+    
+    # Add capabilities for debugging
+    cap_add:
+      - SYS_PTRACE
+    
+    # Security options
+    security_opt:
+      - seccomp:unconfined
+    
+    # Dependencies
+    depends_on:
+      - redis
+      - mlflow
+    
+    # Networks
+    networks:
+      - mcg-dev
+  
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - mcg-dev
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+  
+  mlflow:
+    image: python:3.11-slim
+    ports:
+      - "5000:5000"
+    volumes:
+      - mlflow-data:/mlflow
+    working_dir: /mlflow
+    command: >
+      bash -c "
+        pip install mlflow==2.5.0 &&
+        mlflow server 
+          --backend-store-uri sqlite:///mlflow.db 
+          --default-artifact-root ./artifacts 
+          --host 0.0.0.0 
+          --port 5000
+      "
+    networks:
+      - mcg-dev
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+  
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: mcg_dev
+      POSTGRES_USER: mcg
+      POSTGRES_PASSWORD: mcg_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - mcg-dev
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mcg -d mcg_dev"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+  
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9091:9090"
+    volumes:
+      - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - mcg-dev
+  
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+    networks:
+      - mcg-dev
+  
+  jupyter:
+    image: jupyter/datascience-notebook:latest
+    ports:
+      - "8888:8888"
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+      - JUPYTER_TOKEN=mcg-dev-token
+    volumes:
+      - ../notebooks:/home/jovyan/work
+      - ../data:/home/jovyan/data
+    networks:
+      - mcg-dev
+    command: start-notebook.sh --NotebookApp.token='mcg-dev-token'
+
+volumes:
+  mcg-vscode-extensions:
+  mcg-pip-cache:
+  mcg-pytest-cache:
+  mcg-mypy-cache:
+  mcg-ruff-cache:
+  mcg-pre-commit-cache:
+  redis-data:
+  mlflow-data:
+  postgres-data:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  mcg-dev:
+    driver: bridge
