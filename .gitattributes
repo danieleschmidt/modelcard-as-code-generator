@@ -1,0 +1,80 @@
+# Git LFS tracking for large files
+*.bin filter=lfs diff=lfs merge=lfs -text
+*.model filter=lfs diff=lfs merge=lfs -text
+*.h5 filter=lfs diff=lfs merge=lfs -text
+*.pkl filter=lfs diff=lfs merge=lfs -text
+*.joblib filter=lfs diff=lfs merge=lfs -text
+*.safetensors filter=lfs diff=lfs merge=lfs -text
+
+# Text files with consistent line endings
+*.py text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.txt text eol=lf
+*.sh text eol=lf
+*.j2 text eol=lf
+
+# Documentation and config files
+*.md linguist-detectable=true
+*.yml linguist-detectable=true
+*.yaml linguist-detectable=true
+*.toml linguist-detectable=true
+
+# Archive files (binary)
+*.zip binary
+*.tar.gz binary
+*.tgz binary
+*.tar binary
+
+# Image files (binary)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.svg text eol=lf
+
+# Template files
+*.j2 linguist-language=Jinja
+
+# Docker files
+Dockerfile* text eol=lf
+docker-compose*.yml text eol=lf
+
+# GitHub files
+.github/**/*.md text eol=lf
+.github/**/*.yml text eol=lf
+.github/**/*.yaml text eol=lf
+
+# Scripts
+*.sh text eol=lf
+*.bash text eol=lf
+*.zsh text eol=lf
+
+# Configuration files
+*.ini text eol=lf
+*.cfg text eol=lf
+*.conf text eol=lf
+.editorconfig text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# Language-specific files
+*.py linguist-language=Python
+*.js linguist-language=JavaScript
+*.ts linguist-language=TypeScript
+
+# Exclude generated files from GitHub stats
+htmlcov/* linguist-generated=true
+dist/* linguist-generated=true
+build/* linguist-generated=true
+*.egg-info/* linguist-generated=true
+site/* linguist-generated=true
+docs/_build/* linguist-generated=true
+
+# Security-sensitive patterns
+*.key binary
+*.pem binary
+certificate.* binary

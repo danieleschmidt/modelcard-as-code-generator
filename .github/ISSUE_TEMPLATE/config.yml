@@ -1,0 +1,17 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📚 Documentation
+    url: https://docs.terragonlabs.com/modelcard-generator
+    about: Check our comprehensive documentation for usage guides and API reference
+    
+  - name: 💬 Discussions
+    url: https://github.com/terragonlabs/modelcard-as-code-generator/discussions
+    about: Ask questions, share ideas, and discuss with the community
+    
+  - name: 🚨 Security Vulnerabilities
+    url: mailto:security@terragonlabs.com
+    about: Report security vulnerabilities privately via email
+    
+  - name: 📧 Commercial Support
+    url: mailto:team@terragonlabs.com
+    about: Contact us for commercial support, training, or custom development
