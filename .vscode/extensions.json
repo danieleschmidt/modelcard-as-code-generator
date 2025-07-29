@@ -1,0 +1,24 @@
+{
+  "recommendations": [
+    "ms-python.python",
+    "ms-python.black-formatter",
+    "ms-python.isort",
+    "ms-python.mypy-type-checker",
+    "charliermarsh.ruff",
+    "ms-python.flake8",
+    "ms-vscode.makefile-tools",
+    "yzhang.markdown-all-in-one",
+    "davidanson.vscode-markdownlint",
+    "redhat.vscode-yaml",
+    "ms-vscode.vscode-json",
+    "ms-azuretools.vscode-docker",
+    "github.vscode-github-actions",
+    "github.copilot",
+    "editorconfig.editorconfig",
+    "eamodio.gitlens",
+    "gruntfuggly.todo-tree",
+    "streetsidesoftware.code-spell-checker",
+    "formulahendry.auto-rename-tag",
+    "bradlc.vscode-tailwindcss"
+  ]
+}
