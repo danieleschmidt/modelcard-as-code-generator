@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "modelcard-as-code-generator"
-version = "1.0.0"
+version = "1.0.1"
 description = "Automated generation of Model Cards as executable, versioned artifacts"
 readme = "README.md"
 license = {text = "MIT"}
@@ -67,12 +67,14 @@ dev = [
     "ruff>=0.1.0",
     "bandit>=1.7.0",
     "safety>=2.3.0",
+    "radon>=6.0.1",
 ]
 test = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
     "pytest-mock>=3.11.0",
     "pytest-xdist>=3.3.0",
+    "pytest-benchmark>=4.0.0",
     "hypothesis>=6.82.0",
     "factory-boy>=3.3.0",
     "responses>=0.23.0",
@@ -265,6 +267,11 @@ ignore = [
 [tool.bandit]
 exclude_dirs = ["tests", "docs", "scripts"]
 skips = ["B101", "B601"]
+
+# Radon configuration
+[tool.radon]
+show_complexity = true
+min_cc = "B"
 
 # Safety configuration
 [tool.safety]
