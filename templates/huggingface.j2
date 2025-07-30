@@ -1,0 +1,120 @@
+---
+language: {{ language|default('en') }}
+license: {{ license|default('apache-2.0') }}
+datasets:
+{% for dataset in datasets %}
+- {{ dataset }}
+{% endfor %}
+pipeline_tag: {{ pipeline_tag|default('text-generation') }}
+widget:
+{% for example in widget_examples %}
+- text: "{{ example.text }}"
+  example_title: "{{ example.title }}"
+{% endfor %}
+---
+
+# {{ model_name }}
+
+## Model Description
+
+{{ model_description|default('This model was trained to generate model cards as code artifacts.') }}
+
+## Intended Use
+
+### Direct Use
+{{ direct_use|default('This model can be used for generating standardized model documentation.') }}
+
+### Downstream Use
+{{ downstream_use|default('Can be integrated into ML pipelines for automated documentation.') }}
+
+### Out-of-Scope Use
+{{ out_of_scope|default('Not intended for production inference without proper validation.') }}
+
+## Training Details
+
+### Training Data
+{{ training_data_description|default('Training data details not provided.') }}
+
+### Training Procedure
+{{ training_procedure|default('Standard fine-tuning procedure applied.') }}
+
+## Evaluation
+
+### Testing Data, Factors & Metrics
+
+#### Testing Data
+{{ test_data_description|default('Evaluation details not provided.') }}
+
+#### Metrics
+{% for metric_name, metric_value in metrics.items() %}
+- **{{ metric_name }}**: {{ metric_value }}
+{% endfor %}
+
+### Results
+{{ evaluation_results|default('See metrics above for quantitative results.') }}
+
+## Environmental Impact
+
+{% if carbon_footprint %}
+Carbon emissions can be estimated using the [ML CO2 Impact calculator](https://mlco2.github.io/impact#compute).
+
+- **Hardware Type**: {{ hardware_type|default('Unknown') }}
+- **Hours used**: {{ training_hours|default('Unknown') }}
+- **Cloud Provider**: {{ cloud_provider|default('Unknown') }}
+- **Compute Region**: {{ compute_region|default('Unknown') }}
+- **Carbon Emitted**: {{ carbon_footprint }} kg
+{% else %}
+Carbon footprint information not available.
+{% endif %}
+
+## Technical Specifications
+
+### Model Architecture and Objective
+{{ model_architecture|default('Architecture details not provided.') }}
+
+### Compute Infrastructure
+{{ compute_infrastructure|default('Infrastructure details not provided.') }}
+
+### Software
+{{ software_versions|default('Software version information not provided.') }}
+
+## Citation
+
+```bibtex
+@misc{{'{'}}{{ model_name.lower().replace(' ', '_').replace('-', '_') }},
+  title={{'{'}}{{ model_name }}{{'}'}},
+  author={{'{'}}{{ author|default('Model Author') }}{{'}'}},
+  year={{'{'}}{{ year|default('2024') }}{{'}'}},
+  url={{'{'}}{{ model_url|default('https://huggingface.co/models') }}{{'}'}}
+}
+```
+
+## Model Card Authors
+
+{{ model_card_authors|default('Generated automatically by Model Card Generator') }}
+
+## Model Card Contact
+
+{{ contact_info|default('For questions and comments about the model, please contact the model authors.') }}
+
+## Glossary
+
+{% if glossary %}
+{% for term, definition in glossary.items() %}
+- **{{ term }}**: {{ definition }}
+{% endfor %}
+{% endif %}
+
+## More Information
+
+{% if additional_info %}
+{{ additional_info }}
+{% endif %}
+
+{% if references %}
+## References
+
+{% for reference in references %}
+- {{ reference }}
+{% endfor %}
+{% endif %}
