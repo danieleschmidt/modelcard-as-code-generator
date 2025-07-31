@@ -1,0 +1,542 @@
+# Advanced Security Monitoring and Compliance Pipeline
+# Implements continuous security scanning, compliance monitoring,
+# and automated vulnerability management
+
+name: Security & Compliance
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Daily security scans at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      scan_type:
+        description: 'Type of security scan'
+        required: true
+        type: choice
+        options:
+          - full
+          - dependencies
+          - container
+          - secrets
+          - compliance
+      severity_threshold:
+        description: 'Minimum severity level'
+        required: false
+        type: choice
+        options:
+          - LOW
+          - MEDIUM
+          - HIGH
+          - CRITICAL
+        default: 'HIGH'
+
+permissions:
+  contents: read
+  security-events: write
+  issues: write
+  pull-requests: write
+
+env:
+  PYTHON_VERSION: '3.11'
+  REGISTRY: ghcr.io
+
+jobs:
+  # Dependency Vulnerability Scanning
+  dependency-scan:
+    name: Dependency Security Scan
+    runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type == 'dependencies' || github.event.inputs.scan_type == 'full' || github.event.inputs.scan_type == null
+    steps:
+      - uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Install dependencies
+        run: |
+          pip install -e ".[all]"
+          pip install safety pip-audit cyclonedx-bom
+          
+      - name: Generate SBOM
+        run: |
+          cyclonedx-py -o sbom.json
+          
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v3
+        with:
+          name: sbom
+          path: sbom.json
+          
+      - name: Run Safety security scan
+        run: |
+          safety check --json --output safety-report.json || true
+          safety check --short-report || true
+          
+      - name: Run pip-audit scan
+        run: |
+          pip-audit --format=json --output=pip-audit-report.json || true
+          pip-audit --format=cyclonedx --output=pip-audit-sbom.json || true
+          
+      - name: Analyze vulnerability reports
+        run: |
+          python -c "
+          import json
+          import sys
+          
+          # Parse Safety report
+          try:
+              with open('safety-report.json') as f:
+                  safety_data = json.load(f)
+              safety_vulns = len(safety_data.get('vulnerabilities', []))
+          except:
+              safety_vulns = 0
+              
+          # Parse pip-audit report  
+          try:
+              with open('pip-audit-report.json') as f:
+                  audit_data = json.load(f)
+              audit_vulns = len(audit_data.get('vulnerabilities', []))
+          except:
+              audit_vulns = 0
+              
+          total_vulns = safety_vulns + audit_vulns
+          print(f'Total vulnerabilities found: {total_vulns}')
+          
+          # Set threshold based on input or default to HIGH
+          threshold = '${{ github.event.inputs.severity_threshold }}' or 'HIGH'
+          if threshold in ['CRITICAL', 'HIGH'] and total_vulns > 0:
+              print('High/Critical vulnerabilities found, failing build')
+              sys.exit(1)
+          elif threshold == 'MEDIUM' and total_vulns > 5:
+              print('Too many medium+ vulnerabilities found, failing build')  
+              sys.exit(1)
+          "
+          
+      - name: Upload vulnerability reports
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: dependency-scan-reports
+          path: |
+            safety-report.json
+            pip-audit-report.json
+            pip-audit-sbom.json
+
+  # Source Code Security Analysis
+  source-code-scan:
+    name: Source Code Security Scan
+    runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type == 'full' || github.event.inputs.scan_type == null
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Install security tools
+        run: |
+          pip install bandit semgrep
+          
+      - name: Run Bandit security linter
+        run: |
+          bandit -r src/ -f json -o bandit-report.json || true
+          bandit -r src/ -f txt -o bandit-report.txt || true
+          
+      - name: Run Semgrep security analysis
+        run: |
+          semgrep --config=auto src/ --json -o semgrep-report.json || true
+          semgrep --config=p/security-audit src/ --json -o semgrep-security-report.json || true
+          
+      - name: Run custom security checks
+        run: |
+          # Check for hardcoded secrets patterns
+          grep -r -n -i "password\|secret\|key\|token" src/ > hardcoded-check.txt || true
+          
+          # Check for SQL injection patterns
+          grep -r -n "execute\|query" src/ > sql-check.txt || true
+          
+          # Check for XSS patterns  
+          grep -r -n "innerHTML\|eval\|document.write" src/ > xss-check.txt || true
+          
+      - name: Analyze security scan results
+        run: |
+          python -c "
+          import json
+          import sys
+          
+          # Parse Bandit report
+          try:
+              with open('bandit-report.json') as f:
+                  bandit_data = json.load(f)
+              high_issues = [r for r in bandit_data.get('results', []) if r.get('issue_severity') in ['HIGH', 'CRITICAL']]
+              print(f'Bandit high/critical issues: {len(high_issues)}')
+          except:
+              high_issues = []
+              
+          # Parse Semgrep report
+          try:
+              with open('semgrep-report.json') as f:
+                  semgrep_data = json.load(f)
+              critical_findings = [r for r in semgrep_data.get('results', []) if r.get('extra', {}).get('severity') in ['ERROR', 'CRITICAL']]
+              print(f'Semgrep critical findings: {len(critical_findings)}')
+          except:
+              critical_findings = []
+              
+          # Fail if critical issues found
+          total_critical = len(high_issues) + len(critical_findings)
+          if total_critical > 0:
+              print(f'Critical security issues found: {total_critical}')
+              sys.exit(1)
+          "
+          
+      - name: Upload source scan reports
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: source-scan-reports
+          path: |
+            bandit-report.*
+            semgrep-*.json
+            *-check.txt
+
+  # Container Security Scanning
+  container-scan:
+    name: Container Security Scan
+    runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type == 'container' || github.event.inputs.scan_type == 'full' || github.event.inputs.scan_type == null
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        
+      - name: Build container image for scanning
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          load: true
+          tags: modelcard-generator:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          
+      - name: Run Trivy container scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'modelcard-generator:scan'
+          format: 'sarif'
+          output: 'trivy-container.sarif'
+          severity: '${{ github.event.inputs.severity_threshold || "HIGH" }},CRITICAL'
+          
+      - name: Upload Trivy scan results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-container.sarif'
+          
+      - name: Run Trivy container scan (JSON)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'modelcard-generator:scan'
+          format: 'json'
+          output: 'trivy-container.json'
+          
+      - name: Run Docker Bench Security
+        run: |
+          docker run --rm --net host --pid host --userns host --cap-add audit_control \
+            -e DOCKER_CONTENT_TRUST=$DOCKER_CONTENT_TRUST \
+            -v /etc:/etc:ro \
+            -v /usr/bin/containerd:/usr/bin/containerd:ro \
+            -v /usr/bin/runc:/usr/bin/runc:ro \
+            -v /usr/lib/systemd:/usr/lib/systemd:ro \
+            -v /var/lib:/var/lib:ro \
+            -v /var/run/docker.sock:/var/run/docker.sock:ro \
+            --label docker_bench_security \
+            docker/docker-bench-security > docker-bench-results.txt || true
+            
+      - name: Analyze container vulnerabilities
+        run: |
+          python -c "
+          import json
+          import sys
+          
+          try:
+              with open('trivy-container.json') as f:
+                  data = json.load(f)
+              
+              critical_vulns = 0
+              high_vulns = 0
+              
+              for result in data.get('Results', []):
+                  for vuln in result.get('Vulnerabilities', []):
+                      severity = vuln.get('Severity', '')
+                      if severity == 'CRITICAL':
+                          critical_vulns += 1
+                      elif severity == 'HIGH':
+                          high_vulns += 1
+              
+              print(f'Critical vulnerabilities: {critical_vulns}')
+              print(f'High vulnerabilities: {high_vulns}')
+              
+              # Fail on critical vulnerabilities
+              if critical_vulns > 0:
+                  print('Critical vulnerabilities found in container')
+                  sys.exit(1)
+                  
+              # Warning on high vulnerabilities
+              if high_vulns > 5:
+                  print('Warning: High number of high-severity vulnerabilities')
+          except Exception as e:
+              print(f'Error analyzing vulnerabilities: {e}')
+          "
+          
+      - name: Upload container scan reports
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: container-scan-reports
+          path: |
+            trivy-container.*
+            docker-bench-results.txt
+
+  # Secrets Detection
+  secrets-scan:
+    name: Secrets Detection
+    runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type == 'secrets' || github.event.inputs.scan_type == 'full' || github.event.inputs.scan_type == null
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Run GitLeaks secrets scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+          
+      - name: Run TruffleHog secrets scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: main
+          head: HEAD
+          extra_args: --debug --only-verified
+          
+      - name: Custom secrets patterns scan
+        run: |
+          # Enhanced secret patterns detection
+          echo "Scanning for potential secrets..."
+          
+          # API keys and tokens
+          grep -r -n -E "(api[_-]?key|access[_-]?token|secret[_-]?key)" . --include="*.py" --include="*.yml" --include="*.yaml" --include="*.json" > custom-secrets-scan.txt || true
+          
+          # Database credentials
+          grep -r -n -E "(password|passwd|pwd).*=" . --include="*.py" --include="*.yml" --include="*.yaml" --include="*.json" >> custom-secrets-scan.txt || true
+          
+          # Private keys
+          find . -name "*.pem" -o -name "*.key" -o -name "*_rsa" | grep -v ".git" >> custom-secrets-scan.txt || true
+          
+          # Check for any findings
+          if [ -s custom-secrets-scan.txt ]; then
+            echo "Potential secrets found:"
+            cat custom-secrets-scan.txt
+            echo "Please review these findings carefully"
+          else
+            echo "No obvious secrets patterns detected"
+          fi
+          
+      - name: Upload secrets scan results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: secrets-scan-reports
+          path: custom-secrets-scan.txt
+
+  # Compliance Monitoring
+  compliance-check:
+    name: Compliance Monitoring  
+    runs-on: ubuntu-latest
+    if: github.event.inputs.scan_type == 'compliance' || github.event.inputs.scan_type == 'full' || github.event.inputs.scan_type == null
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Check license compliance
+        run: |
+          # Verify license headers in source files
+          echo "Checking license compliance..."
+          
+          missing_headers=0
+          for file in $(find src/ -name "*.py"); do
+            if ! grep -q "License" "$file" && ! grep -q "Copyright" "$file"; then
+              echo "Missing license header: $file"
+              missing_headers=$((missing_headers + 1))
+            fi
+          done
+          
+          echo "Files missing license headers: $missing_headers"
+          
+          # Create compliance report
+          cat > compliance-report.md << EOF
+          # Compliance Report
+          
+          ## License Compliance
+          - Files missing license headers: $missing_headers
+          - License file present: $([ -f LICENSE ] && echo "✅ Yes" || echo "❌ No")
+          - License type: $(head -1 LICENSE 2>/dev/null || echo "Not found")
+          
+          ## Documentation Compliance
+          - README present: $([ -f README.md ] && echo "✅ Yes" || echo "❌ No")
+          - Security policy present: $([ -f SECURITY.md ] && echo "✅ Yes" || echo "❌ No")
+          - Contributing guidelines present: $([ -f CONTRIBUTING.md ] && echo "✅ Yes" || echo "❌ No")
+          - Code of conduct present: $([ -f CODE_OF_CONDUCT.md ] && echo "✅ Yes" || echo "❌ No")
+          
+          ## GDPR Compliance Readiness
+          - Privacy policy references: $(grep -r -i "privacy\|gdpr\|data protection" docs/ | wc -l || echo "0")
+          - Data handling documentation: $([ -f docs/COMPLIANCE_FRAMEWORK.md ] && echo "✅ Yes" || echo "❌ No")
+          
+          ## Security Compliance  
+          - Security documentation: $([ -f SECURITY.md ] && echo "✅ Yes" || echo "❌ No")
+          - Vulnerability reporting process: $(grep -i "vulnerability" SECURITY.md | wc -l || echo "0")
+          EOF
+          
+      - name: Check dependency licenses
+        run: |
+          pip install pip-licenses
+          pip-licenses --format=json --output-file=dependency-licenses.json || true
+          pip-licenses --format=markdown --output-file=dependency-licenses.md || true
+          
+      - name: Generate compliance attestation
+        run: |
+          cat > compliance-attestation.json << EOF
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "commit": "${{ github.sha }}",
+            "repository": "${{ github.repository }}",
+            "compliance_checks": {
+              "license_compliance": "$([ -f LICENSE ] && echo 'passed' || echo 'failed')",
+              "security_policy": "$([ -f SECURITY.md ] && echo 'passed' || echo 'failed')",
+              "code_of_conduct": "$([ -f CODE_OF_CONDUCT.md ] && echo 'passed' || echo 'failed')",
+              "contributing_guidelines": "$([ -f CONTRIBUTING.md ] && echo 'passed' || echo 'failed')",
+              "documentation_complete": "$([ -f docs/COMPLIANCE_FRAMEWORK.md ] && echo 'passed' || echo 'warning')"
+            },
+            "attestor": "github-actions",
+            "workflow": "${{ github.workflow }}"
+          }
+          EOF
+          
+      - name: Upload compliance reports
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: compliance-reports
+          path: |
+            compliance-report.md
+            compliance-attestation.json
+            dependency-licenses.*
+
+  # Security Report Generation
+  security-report:
+    name: Generate Security Report
+    runs-on: ubuntu-latest
+    needs: [dependency-scan, source-code-scan, container-scan, secrets-scan, compliance-check]
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download all scan reports
+        uses: actions/download-artifact@v3
+        with:
+          path: scan-results/
+          
+      - name: Generate consolidated security report
+        run: |
+          cat > SECURITY_REPORT.md << EOF
+          # Security Scan Report
+          
+          **Scan Date:** $(date -u +%Y-%m-%d)  
+          **Repository:** ${{ github.repository }}  
+          **Commit:** ${{ github.sha }}  
+          **Workflow:** ${{ github.workflow }}
+          
+          ## Scan Summary
+          
+          | Scan Type | Status | Critical | High | Medium | Low |
+          |-----------|--------|----------|------|--------|-----|
+          | Dependencies | ${{ needs.dependency-scan.result }} | - | - | - | - |
+          | Source Code | ${{ needs.source-code-scan.result }} | - | - | - | - |
+          | Container | ${{ needs.container-scan.result }} | - | - | - | - |
+          | Secrets | ${{ needs.secrets-scan.result }} | - | - | - | - |
+          | Compliance | ${{ needs.compliance-check.result }} | - | - | - | - |
+          
+          ## Recommendations
+          
+          1. **High Priority:** Address any critical and high severity vulnerabilities
+          2. **Medium Priority:** Review and remediate medium severity issues
+          3. **Monitoring:** Set up continuous monitoring for new vulnerabilities
+          4. **Compliance:** Ensure all compliance requirements are met
+          
+          ## Next Steps
+          
+          - [ ] Review detailed scan reports in artifacts
+          - [ ] Create issues for vulnerabilities requiring fixes
+          - [ ] Update security documentation as needed
+          - [ ] Schedule follow-up security review
+          
+          ---
+          *This report was generated automatically by the Security & Compliance workflow.*
+          EOF
+          
+      - name: Upload consolidated security report
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-report
+          path: SECURITY_REPORT.md
+          
+      - name: Create security issue for failures
+        if: contains(needs.*.result, 'failure')
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const title = `Security Scan Failures - ${new Date().toISOString().split('T')[0]}`;
+            const body = `## Security Scan Failures Detected
+            
+            One or more security scans have failed. Please review the following:
+            
+            **Scan Results:**
+            - Dependency Scan: ${{ needs.dependency-scan.result }}
+            - Source Code Scan: ${{ needs.source-code-scan.result }}  
+            - Container Scan: ${{ needs.container-scan.result }}
+            - Secrets Scan: ${{ needs.secrets-scan.result }}
+            - Compliance Check: ${{ needs.compliance-check.result }}
+            
+            **Action Required:**
+            1. Review scan artifacts in the failed workflow run
+            2. Address critical and high severity issues
+            3. Update documentation and policies as needed
+            4. Re-run security scans after fixes
+            
+            **Workflow Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            `;
+            
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['security', 'bug', 'high-priority']
+            });

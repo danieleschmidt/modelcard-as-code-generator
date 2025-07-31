@@ -1,0 +1,214 @@
+# Kustomization for Production Deployment of Model Card Generator
+# Implements enterprise-grade Kubernetes deployment with security,
+# monitoring, and high availability configurations
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: modelcard-generator-production
+  annotations:
+    config.kubernetes.io/local-config: "true"
+
+# Base resources
+resources:
+  - ../base
+  - ingress.yaml
+  - hpa.yaml
+  - pdb.yaml
+  - networkpolicy.yaml
+  - servicemonitor.yaml
+  - certificates.yaml
+
+# Images
+images:
+  - name: modelcard-generator
+    newName: ghcr.io/terragonlabs/modelcard-generator
+    newTag: latest
+
+# Replica configuration  
+replicas:
+  - name: modelcard-generator
+    count: 3
+
+# ConfigMap generator
+configMapGenerator:
+  - name: modelcard-config
+    literals:
+      - environment=production
+      - log_level=INFO
+      - metrics_enabled=true
+      - tracing_enabled=true
+      - cache_enabled=true
+      - backup_enabled=true
+    options:
+      disableNameSuffixHash: true
+
+# Secret generator  
+secretGenerator:
+  - name: modelcard-secrets
+    literals:
+      - database_url=postgresql://admin:$(DATABASE_PASSWORD)@postgres:5432/modelcard_generator
+      - redis_url=redis://redis:6379/0
+      - secret_key=$(SECRET_KEY)
+      - api_key=$(API_KEY)
+    options:
+      disableNameSuffixHash: true
+
+# Patches
+patches:
+  # Resource limits for production
+  - target:
+      kind: Deployment
+      name: modelcard-generator
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+  
+  # Environment-specific configurations
+  - target:
+      kind: Deployment  
+      name: modelcard-generator
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: ENVIRONMENT
+          value: production
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: DATABASE_POOL_SIZE
+          value: "20"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: CACHE_SIZE
+          value: "1000"
+  
+  # Security context
+  - target:
+      kind: Deployment
+      name: modelcard-generator  
+    patch: |-
+      - op: add
+        path: /spec/template/spec/securityContext
+        value:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          fsGroup: 1000
+          seccompProfile:
+            type: RuntimeDefault
+      - op: add
+        path: /spec/template/spec/containers/0/securityContext
+        value:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+              - ALL
+
+  # Health checks
+  - target:
+      kind: Deployment
+      name: modelcard-generator
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/livenessProbe
+        value:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+      - op: add
+        path: /spec/template/spec/containers/0/readinessProbe
+        value:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+
+  # Node affinity for high availability
+  - target:
+      kind: Deployment
+      name: modelcard-generator
+    patch: |-
+      - op: add
+        path: /spec/template/spec/affinity
+        value:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                    - modelcard-generator
+                topologyKey: kubernetes.io/hostname
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+              - matchExpressions:
+                - key: node.kubernetes.io/instance-type
+                  operator: NotIn
+                  values:
+                  - t2.nano
+                  - t2.micro
+
+# Common labels
+commonLabels:
+  app: modelcard-generator
+  environment: production
+  version: v1.0.0
+  component: api
+  part-of: modelcard-system
+  managed-by: kustomize
+
+# Common annotations  
+commonAnnotations:
+  deployment.kubernetes.io/revision: "1"
+  kubernetes.io/managed-by: kustomize
+  app.kubernetes.io/managed-by: kustomize
+
+# Namespace
+namespace: modelcard-production
+
+# Name prefix
+namePrefix: prod-
+
+# Label transformers
+transformers:
+  - |-
+    apiVersion: builtin
+    kind: LabelTransformer
+    metadata:
+      name: labels
+    labels:
+      owner: terragon-labs
+      cost-center: engineering
+      backup: enabled
+    fieldSpecs:
+    - path: metadata/labels
+      create: true
+    - path: spec/selector/matchLabels
+      create: true
+    - path: spec/template/metadata/labels
+      create: true
