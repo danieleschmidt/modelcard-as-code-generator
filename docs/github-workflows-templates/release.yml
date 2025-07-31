@@ -1,0 +1,422 @@
+# Automated Release Pipeline for Model Card Generator
+# Implements semantic versioning with automated changelog generation
+# and multi-platform distribution
+
+name: Release Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Type of release'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - prerelease
+      skip_tests:
+        description: 'Skip test suite (emergency releases only)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  packages: write
+  pull-requests: write
+  issues: write
+
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '18'
+  REGISTRY: ghcr.io
+
+jobs:
+  # Release Preparation
+  prepare-release:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      changelog: ${{ steps.changelog.outputs.changelog }}
+      should_release: ${{ steps.check.outputs.should_release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if release is needed
+        id: check
+        run: |
+          # Check for conventional commits since last release
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$LAST_TAG" ]; then
+            echo "should_release=true" >> $GITHUB_OUTPUT
+            echo "First release detected"
+            exit 0
+          fi
+          
+          # Check for feat: or fix: commits
+          CHANGES=$(git log $LAST_TAG..HEAD --pretty=format:"%s" | grep -E "^(feat|fix|docs|perf|refactor):" || true)
+          if [ -n "$CHANGES" ] || [ "${{ github.event.inputs.release_type }}" != "" ]; then
+            echo "should_release=true" >> $GITHUB_OUTPUT
+            echo "Changes detected since last release"
+          else
+            echo "should_release=false" >> $GITHUB_OUTPUT
+            echo "No significant changes since last release"
+          fi
+
+      - name: Setup Node.js
+        if: steps.check.outputs.should_release == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install semantic-release
+        if: steps.check.outputs.should_release == 'true'
+        run: |
+          npm install -g semantic-release @semantic-release/changelog @semantic-release/git @semantic-release/github
+
+      - name: Generate version and changelog
+        if: steps.check.outputs.should_release == 'true'
+        id: version
+        run: |
+          # Create semantic-release config
+          cat > .releaserc.json << EOF
+          {
+            "branches": ["main"],
+            "plugins": [
+              "@semantic-release/commit-analyzer",
+              "@semantic-release/release-notes-generator",
+              ["@semantic-release/changelog", {
+                "changelogFile": "CHANGELOG.md"
+              }],
+              ["@semantic-release/git", {
+                "assets": ["CHANGELOG.md", "pyproject.toml"],
+                "message": "chore(release): \${nextRelease.version} [skip ci]\n\n\${nextRelease.notes}"
+              }],
+              "@semantic-release/github"
+            ]
+          }
+          EOF
+          
+          # Run semantic-release in dry-run mode to get version
+          export GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }}
+          semantic-release --dry-run > release-output.txt 2>&1 || true
+          
+          VERSION=$(grep "The next release version is" release-output.txt | sed 's/.*version is //' || echo "1.0.0")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+          echo "Generated version: $VERSION"
+
+      - name: Generate changelog
+        if: steps.check.outputs.should_release == 'true'
+        id: changelog
+        run: |
+          # Generate changelog content
+          CHANGELOG=$(git log --pretty=format:"- %s (%h)" $(git describe --tags --abbrev=0 2>/dev/null || echo "")..HEAD | head -20)
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+  # Comprehensive Testing (Optional Skip)
+  test-suite:
+    name: Release Testing
+    runs-on: ubuntu-latest
+    needs: prepare-release
+    if: needs.prepare-release.outputs.should_release == 'true' && github.event.inputs.skip_tests != 'true'
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11', '3.12']
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+          
+      - name: Install dependencies
+        run: |
+          pip install -e ".[test,cli]"
+          
+      - name: Run comprehensive tests
+        run: |
+          pytest tests/ -v --cov=src --cov-report=xml
+          
+      - name: Test CLI functionality
+        run: |
+          mcg --help
+          mcg generate --help
+
+  # Security and Compliance Validation
+  security-validation:
+    name: Security Validation
+    runs-on: ubuntu-latest
+    needs: prepare-release
+    if: needs.prepare-release.outputs.should_release == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run comprehensive security scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1'
+
+      - name: Dependency vulnerability check
+        run: |
+          pip install safety
+          safety check --json || exit 1
+
+  # Build and Package
+  build-artifacts:
+    name: Build Release Artifacts
+    runs-on: ubuntu-latest
+    needs: [prepare-release, test-suite, security-validation]
+    if: always() && needs.prepare-release.outputs.should_release == 'true' && (needs.test-suite.result == 'success' || needs.test-suite.result == 'skipped') && needs.security-validation.result == 'success'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Update version in pyproject.toml
+        run: |
+          pip install toml
+          python -c "
+          import toml
+          data = toml.load('pyproject.toml')
+          data['project']['version'] = '${{ needs.prepare-release.outputs.version }}'
+          with open('pyproject.toml', 'w') as f:
+              toml.dump(data, f)
+          "
+          
+      - name: Build source and wheel distributions
+        run: |
+          pip install build
+          python -m build
+          
+      - name: Validate distributions
+        run: |
+          pip install twine
+          twine check dist/*
+          
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: distributions
+          path: dist/
+
+  # Container Image Build
+  build-container:
+    name: Build Container Image
+    runs-on: ubuntu-latest
+    needs: [prepare-release, build-artifacts]
+    if: needs.prepare-release.outputs.should_release == 'true'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Build and push container image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository }}:latest
+            ${{ env.REGISTRY }}/${{ github.repository }}:${{ needs.prepare-release.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ needs.prepare-release.outputs.version }}
+
+  # Create GitHub Release
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [prepare-release, build-artifacts, build-container]
+    if: needs.prepare-release.outputs.should_release == 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Download build artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: distributions
+          path: dist/
+          
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.prepare-release.outputs.tag }}
+          name: Release ${{ needs.prepare-release.outputs.version }}
+          body: |
+            ## Changes in ${{ needs.prepare-release.outputs.version }}
+            
+            ${{ needs.prepare-release.outputs.changelog }}
+            
+            ## Installation
+            
+            ```bash
+            pip install modelcard-as-code-generator==${{ needs.prepare-release.outputs.version }}
+            ```
+            
+            ## Container Image
+            
+            ```bash
+            docker pull ghcr.io/${{ github.repository }}:${{ needs.prepare-release.outputs.version }}
+            ```
+            
+            ## What's Changed
+            
+            Full changelog: [${{ needs.prepare-release.outputs.tag }}](https://github.com/${{ github.repository }}/compare/v${{ needs.prepare-release.outputs.version }})
+          files: dist/*
+          draft: false
+          prerelease: ${{ contains(needs.prepare-release.outputs.version, '-') }}
+          generate_release_notes: true
+
+  # Publish to PyPI
+  publish-pypi:
+    name: Publish to PyPI
+    runs-on: ubuntu-latest
+    needs: [prepare-release, create-release]
+    if: needs.prepare-release.outputs.should_release == 'true'
+    environment:
+      name: pypi
+      url: https://pypi.org/project/modelcard-as-code-generator/
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: distributions
+          path: dist/
+          
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          verbose: true
+
+  # Update Documentation
+  update-docs:
+    name: Update Documentation
+    runs-on: ubuntu-latest
+    needs: [prepare-release, publish-pypi]
+    if: needs.prepare-release.outputs.should_release == 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Install dependencies
+        run: |
+          pip install -e ".[docs]"
+          
+      - name: Build and deploy documentation
+        run: |
+          mike deploy --push --update-aliases ${{ needs.prepare-release.outputs.version }} latest
+          mike set-default --push latest
+
+  # Post-Release Notifications
+  notify-release:
+    name: Release Notifications
+    runs-on: ubuntu-latest
+    needs: [prepare-release, publish-pypi, update-docs]
+    if: always() && needs.prepare-release.outputs.should_release == 'true'
+    steps:
+      - name: Notify Slack on success
+        if: needs.publish-pypi.result == 'success'
+        uses: 8398a7/action-slack@v3
+        with:
+          status: success
+          text: |
+            🚀 **Model Card Generator ${{ needs.prepare-release.outputs.version }} Released!**
+            
+            📦 PyPI: https://pypi.org/project/modelcard-as-code-generator/
+            🐳 Container: ghcr.io/${{ github.repository }}:${{ needs.prepare-release.outputs.version }}
+            📋 Release Notes: https://github.com/${{ github.repository }}/releases/tag/${{ needs.prepare-release.outputs.tag }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          
+      - name: Create post-release issue
+        if: needs.publish-pypi.result == 'success'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Post-Release Tasks for v${{ needs.prepare-release.outputs.version }}`,
+              body: `## Post-Release Checklist for v${{ needs.prepare-release.outputs.version }}
+              
+              - [ ] Monitor PyPI downloads and user feedback
+              - [ ] Update dependent repositories
+              - [ ] Announce on social media and community channels
+              - [ ] Update roadmap and planning docs
+              - [ ] Review and update CI/CD improvements
+              
+              **Release Information:**
+              - Version: ${{ needs.prepare-release.outputs.version }}
+              - PyPI: https://pypi.org/project/modelcard-as-code-generator/
+              - Container: ghcr.io/${{ github.repository }}:${{ needs.prepare-release.outputs.version }}
+              `,
+              labels: ['post-release', 'maintenance']
+            })
+
+  # Rollback Capability
+  rollback-preparation:
+    name: Prepare Rollback Artifacts
+    runs-on: ubuntu-latest
+    needs: [prepare-release, publish-pypi]
+    if: needs.prepare-release.outputs.should_release == 'true'
+    steps:
+      - name: Store rollback information
+        run: |
+          echo "# Rollback Information for ${{ needs.prepare-release.outputs.version }}" > rollback-info.md
+          echo "- Previous version: $(curl -s https://pypi.org/pypi/modelcard-as-code-generator/json | jq -r '.info.version')" >> rollback-info.md
+          echo "- Release date: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> rollback-info.md
+          echo "- Commit SHA: ${{ github.sha }}" >> rollback-info.md
+          echo "- Triggered by: ${{ github.actor }}" >> rollback-info.md
+          
+      - name: Upload rollback artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: rollback-info-${{ needs.prepare-release.outputs.version }}
+          path: rollback-info.md
+          retention-days: 90

@@ -1,0 +1,159 @@
+# Automated dependency management with Dependabot
+# Provides security updates and version management
+
+version: 2
+
+updates:
+  # Python dependencies
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "terragon-labs/security-team"
+    assignees:
+      - "terragon-labs/maintainers"
+    commit-message:
+      prefix: "deps"
+      prefix-development: "deps-dev"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "python"
+    milestone: "next-release"
+    # Security updates
+    allow:
+      - dependency-type: "direct"
+      - dependency-type: "indirect"
+    # Group updates for related dependencies
+    groups:
+      testing-dependencies:
+        patterns:
+          - "pytest*"
+          - "*test*"
+          - "factory-boy"
+          - "hypothesis"
+          - "coverage"
+      linting-dependencies:
+        patterns:
+          - "black"
+          - "flake8"
+          - "isort"
+          - "mypy"
+          - "ruff"
+          - "bandit"
+      docs-dependencies:
+        patterns:
+          - "mkdocs*"
+          - "sphinx*"
+      security-dependencies:
+        patterns:
+          - "safety"
+          - "bandit"
+          - "pip-audit"
+    # Version update strategies
+    versioning-strategy: "increase"
+    # Reject specific updates
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+        # Allow major updates for security patches
+      - dependency-name: "urllib3"
+        versions: ["1.x"]
+        # Ignore specific problematic versions
+
+  # GitHub Actions dependencies
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "04:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "terragon-labs/devops-team"
+    assignees:
+      - "terragon-labs/maintainers"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "github-actions"
+      - "ci/cd"
+    # Group actions updates
+    groups:
+      setup-actions:
+        patterns:
+          - "actions/setup-*"
+          - "actions/checkout"
+          - "actions/upload-*"
+          - "actions/download-*"
+      security-actions:
+        patterns:
+          - "github/codeql-action*"
+          - "aquasecurity/trivy-action"
+          - "trufflesecurity/trufflehog"
+      docker-actions:
+        patterns:
+          - "docker/*"
+
+  # Docker dependencies  
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "04:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "terragon-labs/devops-team"
+    assignees:
+      - "terragon-labs/maintainers"
+    commit-message:
+      prefix: "docker"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "docker"
+    # Only allow patch and minor updates for base images
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # NPM dependencies (if any)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "thursday"
+      time: "04:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "terragon-labs/frontend-team"
+    commit-message:
+      prefix: "deps"
+      prefix-development: "deps-dev"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "javascript"
+    # Group frontend dependencies
+    groups:
+      build-tools:
+        patterns:
+          - "webpack*"
+          - "babel*"
+          - "eslint*"
+          - "prettier*"
+      testing-tools:
+        patterns:
+          - "jest*"
+          - "@testing-library/*"

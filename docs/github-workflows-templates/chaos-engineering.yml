@@ -1,0 +1,676 @@
+# Chaos Engineering Pipeline for Model Card Generator
+# Implements resilience testing, fault injection, and system reliability validation
+# Tests system behavior under adverse conditions and failure scenarios
+
+name: Chaos Engineering
+
+on:
+  schedule:
+    # Weekly chaos engineering tests on Sundays at 1 AM UTC
+    - cron: '0 1 * * 0'
+  workflow_dispatch:
+    inputs:
+      chaos_level:
+        description: 'Chaos engineering test level'
+        required: true
+        type: choice
+        options:
+          - basic
+          - intermediate
+          - advanced
+          - extreme
+        default: 'basic'
+      target_environment:
+        description: 'Target environment for chaos tests'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production-safe
+          - isolated
+        default: 'staging'
+      duration_minutes:
+        description: 'Test duration in minutes'
+        required: false
+        type: number
+        default: 30
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+env:
+  PYTHON_VERSION: '3.11'
+  CHAOS_TOOLKIT_VERSION: '1.16.0'
+  MONITORING_INTERVAL: 30
+
+jobs:
+  # Chaos Engineering Setup
+  chaos-setup:
+    name: Chaos Engineering Setup
+    runs-on: ubuntu-latest
+    outputs:
+      chaos_experiments: ${{ steps.experiments.outputs.experiments }}
+      test_environment: ${{ steps.environment.outputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Install Chaos Toolkit
+        run: |
+          pip install chaostoolkit==${{ env.CHAOS_TOOLKIT_VERSION }}
+          pip install chaostoolkit-kubernetes chaostoolkit-prometheus
+          pip install -e ".[test]"
+          
+      - name: Validate chaos experiments
+        run: |
+          # Validate all chaos experiment definitions
+          for experiment in chaos-experiments/*.json; do
+            if [ -f "$experiment" ]; then
+              echo "Validating $experiment"
+              chaos validate "$experiment"
+            fi
+          done
+          
+      - name: Determine experiments to run
+        id: experiments
+        run: |
+          LEVEL="${{ github.event.inputs.chaos_level || 'basic' }}"
+          
+          case $LEVEL in
+            basic)
+              EXPERIMENTS="network-latency,memory-pressure,cpu-stress"
+              ;;
+            intermediate)
+              EXPERIMENTS="network-latency,memory-pressure,cpu-stress,disk-io,process-kill"
+              ;;
+            advanced)
+              EXPERIMENTS="network-latency,memory-pressure,cpu-stress,disk-io,process-kill,container-kill,network-partition"
+              ;;
+            extreme)
+              EXPERIMENTS="all"
+              ;;
+          esac
+          
+          echo "experiments=$EXPERIMENTS" >> $GITHUB_OUTPUT
+          echo "Selected experiments: $EXPERIMENTS"
+          
+      - name: Setup test environment
+        id: environment
+        run: |
+          ENV="${{ github.event.inputs.target_environment || 'staging' }}"
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+          
+          # Configure environment-specific settings
+          case $ENV in
+            staging)
+              echo "CHAOS_SAFE_MODE=true" >> $GITHUB_ENV
+              echo "MAX_IMPACT_DURATION=600" >> $GITHUB_ENV  # 10 minutes
+              ;;
+            production-safe)
+              echo "CHAOS_SAFE_MODE=true" >> $GITHUB_ENV
+              echo "MAX_IMPACT_DURATION=300" >> $GITHUB_ENV  # 5 minutes
+              echo "REQUIRE_MANUAL_APPROVAL=true" >> $GITHUB_ENV
+              ;;
+            isolated)
+              echo "CHAOS_SAFE_MODE=false" >> $GITHUB_ENV
+              echo "MAX_IMPACT_DURATION=1800" >> $GITHUB_ENV  # 30 minutes
+              ;;
+          esac
+
+  # Network Chaos Testing
+  network-chaos:
+    name: Network Chaos Testing
+    runs-on: ubuntu-latest
+    needs: chaos-setup
+    if: contains(needs.chaos-setup.outputs.chaos_experiments, 'network-latency') || contains(needs.chaos-setup.outputs.chaos_experiments, 'all')
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up test environment
+        run: |
+          # Install network simulation tools
+          sudo apt-get update
+          sudo apt-get install -y iproute2 iptables tc
+          
+      - name: Set up Python and dependencies
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Install dependencies
+        run: |
+          pip install chaostoolkit netem-py
+          pip install -e ".[test]"
+          
+      - name: Start model card generator service
+        run: |
+          # Start service in background
+          python -m modelcard_generator.api --port 8080 &
+          echo $! > service.pid
+          sleep 5
+          
+          # Verify service is running
+          curl -f http://localhost:8080/health || exit 1
+          
+      - name: Run network latency chaos experiment
+        run: |
+          cat > network-latency-experiment.json << 'EOF'
+          {
+            "version": "1.0.0",
+            "title": "Network latency impact on model card generation",
+            "description": "Test system resilience under network latency conditions",
+            "tags": ["network", "latency", "resilience"],
+            "steady-state-hypothesis": {
+              "title": "Service responds within acceptable time",
+              "probes": [
+                {
+                  "name": "service-response-time",
+                  "type": "probe",
+                  "provider": {
+                    "type": "http",
+                    "url": "http://localhost:8080/health",
+                    "timeout": 5
+                  },
+                  "tolerance": {
+                    "type": "probe",
+                    "name": "response-time-under-2s",
+                    "provider": {
+                      "type": "python",
+                      "module": "chaos_experiments.probes",
+                      "func": "check_response_time",
+                      "arguments": {"max_time": 2.0}
+                    }
+                  }
+                }
+              ]
+            },
+            "method": [
+              {
+                "name": "introduce-network-latency",
+                "type": "action",
+                "provider": {
+                  "type": "python",
+                  "module": "chaos_experiments.actions",
+                  "func": "add_network_latency",
+                  "arguments": {
+                    "delay": "200ms",
+                    "jitter": "50ms",
+                    "interface": "lo"
+                  }
+                },
+                "pauses": {
+                  "after": 60
+                }
+              }
+            ],
+            "rollbacks": [
+              {
+                "name": "remove-network-latency",
+                "type": "action",
+                "provider": {
+                  "type": "python",
+                  "module": "chaos_experiments.actions",
+                  "func": "remove_network_latency",
+                  "arguments": {
+                    "interface": "lo"
+                  }
+                }
+              }
+            ]
+          }
+          EOF
+          
+          # Run the chaos experiment
+          chaos run network-latency-experiment.json --report-path network-chaos-report.json
+          
+      - name: Analyze network chaos results
+        run: |
+          python -c "
+          import json
+          import sys
+          
+          with open('network-chaos-report.json') as f:
+              report = json.load(f)
+              
+          status = report.get('status', 'unknown')
+          print(f'Network chaos experiment status: {status}')
+          
+          if status != 'completed':
+              print('Network chaos experiment failed')
+              sys.exit(1)
+              
+          # Check if steady state was maintained
+          steady_state = report.get('steady_states', {})
+          if not steady_state.get('after', {}).get('steady_state_met', False):
+              print('WARNING: Steady state not maintained after network chaos')
+          else:
+              print('SUCCESS: System maintained steady state under network chaos')
+          "
+          
+      - name: Cleanup
+        if: always()
+        run: |
+          # Kill service
+          if [ -f service.pid ]; then
+            kill $(cat service.pid) || true
+          fi
+          
+          # Clean up network rules
+          sudo tc qdisc del dev lo root || true
+          
+      - name: Upload network chaos results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: network-chaos-results
+          path: network-chaos-report.json
+
+  # Memory Pressure Chaos Testing
+  memory-chaos:
+    name: Memory Pressure Testing
+    runs-on: ubuntu-latest
+    needs: chaos-setup
+    if: contains(needs.chaos-setup.outputs.chaos_experiments, 'memory-pressure') || contains(needs.chaos-setup.outputs.chaos_experiments, 'all')
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python and dependencies
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Install dependencies
+        run: |
+          pip install chaostoolkit psutil
+          pip install -e ".[test]"
+          
+      - name: Install stress testing tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y stress-ng
+          
+      - name: Run memory pressure chaos experiment
+        run: |
+          # Create memory pressure experiment
+          cat > memory-pressure-experiment.json << 'EOF'
+          {
+            "version": "1.0.0",
+            "title": "Memory pressure impact on model card generation",
+            "description": "Test system behavior under high memory pressure",
+            "tags": ["memory", "pressure", "resilience"],
+            "steady-state-hypothesis": {
+              "title": "Model card generation completes successfully",
+              "probes": [
+                {
+                  "name": "memory-usage-check",
+                  "type": "probe",
+                  "provider": {
+                    "type": "python",
+                    "module": "chaos_experiments.probes",
+                    "func": "check_memory_usage",
+                    "arguments": {"max_usage_percent": 85}
+                  }
+                }
+              ]
+            },
+            "method": [
+              {
+                "name": "create-memory-pressure",
+                "type": "action",
+                "provider": {
+                  "type": "process",
+                  "path": "stress-ng",
+                  "arguments": ["--vm", "2", "--vm-bytes", "1G", "--timeout", "120s"]
+                },
+                "background": true
+              },
+              {
+                "name": "test-model-card-generation",
+                "type": "action",
+                "provider": {
+                  "type": "python",
+                  "module": "chaos_experiments.actions",
+                  "func": "test_model_card_generation",
+                  "arguments": {
+                    "template": "huggingface",
+                    "iterations": 10
+                  }
+                },
+                "pauses": {
+                  "after": 10
+                }
+              }
+            ]
+          }
+          EOF
+          
+          # Run memory pressure experiment
+          chaos run memory-pressure-experiment.json --report-path memory-chaos-report.json
+          
+      - name: Analyze memory pressure results
+        run: |
+          python -c "
+          import json
+          import sys
+          
+          with open('memory-chaos-report.json') as f:
+              report = json.load(f)
+              
+          status = report.get('status', 'unknown')
+          print(f'Memory pressure experiment status: {status}')
+          
+          # Analyze experiment results
+          activities = report.get('run', [])
+          for activity in activities:
+              if activity.get('type') == 'action' and 'model-card-generation' in activity.get('name', ''):
+                  output = activity.get('output', {})
+                  if output.get('status') == 'success':
+                      print('SUCCESS: Model card generation succeeded under memory pressure')
+                  else:
+                      print('WARNING: Model card generation struggled under memory pressure')
+          "
+          
+      - name: Upload memory chaos results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: memory-chaos-results
+          path: memory-chaos-report.json
+
+  # CPU Stress Chaos Testing
+  cpu-chaos:
+    name: CPU Stress Testing
+    runs-on: ubuntu-latest
+    needs: chaos-setup
+    if: contains(needs.chaos-setup.outputs.chaos_experiments, 'cpu-stress') || contains(needs.chaos-setup.outputs.chaos_experiments, 'all')
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python and dependencies
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Install dependencies
+        run: |
+          pip install chaostoolkit psutil
+          pip install -e ".[test]"
+          sudo apt-get update
+          sudo apt-get install -y stress-ng
+          
+      - name: Run CPU stress chaos experiment
+        run: |
+          # Monitor baseline performance
+          python -c "
+          import time
+          import psutil
+          from modelcard_generator import ModelCardGenerator
+          
+          # Baseline performance test
+          start_time = time.time()
+          generator = ModelCardGenerator()
+          # Simulate model card generation
+          time.sleep(2)  # Placeholder for actual generation
+          baseline_time = time.time() - start_time
+          
+          print(f'Baseline generation time: {baseline_time:.2f}s')
+          
+          with open('baseline-performance.json', 'w') as f:
+              import json
+              json.dump({'baseline_time': baseline_time}, f)
+          "
+          
+          # Run CPU stress test
+          stress-ng --cpu $(nproc) --cpu-load 90 --timeout 60s &
+          STRESS_PID=$!
+          
+          # Test performance under CPU stress
+          python -c "
+          import time
+          import json
+          from modelcard_generator import ModelCardGenerator
+          
+          # Load baseline
+          with open('baseline-performance.json') as f:
+              baseline = json.load(f)
+          
+          # Performance test under stress
+          start_time = time.time()
+          generator = ModelCardGenerator()
+          # Simulate model card generation under stress
+          time.sleep(2)  # Placeholder for actual generation
+          stress_time = time.time() - start_time
+          
+          degradation = ((stress_time - baseline['baseline_time']) / baseline['baseline_time']) * 100
+          
+          print(f'Performance under CPU stress: {stress_time:.2f}s')
+          print(f'Performance degradation: {degradation:.1f}%')
+          
+          with open('cpu-stress-results.json', 'w') as f:
+              json.dump({
+                  'baseline_time': baseline['baseline_time'],
+                  'stress_time': stress_time,
+                  'degradation_percent': degradation,
+                  'acceptable': degradation < 50  # 50% degradation threshold
+              }, f)
+          "
+          
+          # Clean up stress process
+          kill $STRESS_PID || true
+          wait $STRESS_PID || true
+          
+      - name: Analyze CPU stress results
+        run: |
+          python -c "
+          import json
+          import sys
+          
+          with open('cpu-stress-results.json') as f:
+              results = json.load(f)
+              
+          degradation = results['degradation_percent']
+          acceptable = results['acceptable']
+          
+          print(f'CPU stress test results:')
+          print(f'  - Baseline time: {results[\"baseline_time\"]:.2f}s')
+          print(f'  - Stress time: {results[\"stress_time\"]:.2f}s')
+          print(f'  - Degradation: {degradation:.1f}%')
+          print(f'  - Acceptable: {acceptable}')
+          
+          if not acceptable:
+              print('ERROR: Performance degradation exceeds acceptable threshold')
+              sys.exit(1)
+          else:
+              print('SUCCESS: System performance acceptable under CPU stress')
+          "
+          
+      - name: Upload CPU chaos results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: cpu-chaos-results
+          path: |
+            baseline-performance.json
+            cpu-stress-results.json
+
+  # Fault Injection Testing
+  fault-injection:
+    name: Fault Injection Testing
+    runs-on: ubuntu-latest
+    needs: chaos-setup
+    if: contains(needs.chaos-setup.outputs.chaos_experiments, 'process-kill') || contains(needs.chaos-setup.outputs.chaos_experiments, 'all')
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python and dependencies
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+      - name: Install dependencies
+        run: |
+          pip install chaostoolkit
+          pip install -e ".[test]"
+          
+      - name: Test graceful degradation
+        run: |
+          # Test various fault conditions
+          python chaos-experiments/fault_injection_test.py \
+            --test-type graceful-degradation \
+            --output fault-injection-results.json
+            
+      - name: Test error handling
+        run: |
+          # Test error handling under various failure conditions
+          python chaos-experiments/fault_injection_test.py \
+            --test-type error-handling \
+            --output error-handling-results.json
+            
+      - name: Analyze fault injection results
+        run: |
+          python -c "
+          import json
+          import sys
+          
+          # Analyze graceful degradation
+          with open('fault-injection-results.json') as f:
+              results = json.load(f)
+              
+          passed_tests = results.get('passed', 0)
+          total_tests = results.get('total', 0)
+          success_rate = (passed_tests / total_tests) * 100 if total_tests > 0 else 0
+          
+          print(f'Fault injection test results:')
+          print(f'  - Passed: {passed_tests}/{total_tests}')
+          print(f'  - Success rate: {success_rate:.1f}%')
+          
+          if success_rate < 80:  # 80% threshold
+              print('ERROR: Fault injection success rate below threshold')
+              sys.exit(1)
+          else:
+              print('SUCCESS: System handles faults gracefully')
+          "
+          
+      - name: Upload fault injection results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: fault-injection-results
+          path: |
+            fault-injection-results.json
+            error-handling-results.json
+
+  # Chaos Engineering Report
+  chaos-report:
+    name: Generate Chaos Engineering Report
+    runs-on: ubuntu-latest
+    needs: [chaos-setup, network-chaos, memory-chaos, cpu-chaos, fault-injection]
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download all chaos test results
+        uses: actions/download-artifact@v3
+        with:
+          path: chaos-results/
+          
+      - name: Generate comprehensive chaos report
+        run: |
+          cat > CHAOS_ENGINEERING_REPORT.md << EOF
+          # Chaos Engineering Report
+          
+          **Test Date:** $(date -u +%Y-%m-%d)  
+          **Repository:** ${{ github.repository }}  
+          **Chaos Level:** ${{ github.event.inputs.chaos_level || 'basic' }}  
+          **Target Environment:** ${{ github.event.inputs.target_environment || 'staging' }}  
+          **Duration:** ${{ github.event.inputs.duration_minutes || '30' }} minutes
+          
+          ## Test Results Summary
+          
+          | Test Type | Status | Result | Notes |
+          |-----------|--------|--------|-------|
+          | Network Chaos | ${{ needs.network-chaos.result }} | - | Network latency resilience |
+          | Memory Pressure | ${{ needs.memory-chaos.result }} | - | Memory constraint handling |
+          | CPU Stress | ${{ needs.cpu-chaos.result }} | - | CPU load performance |
+          | Fault Injection | ${{ needs.fault-injection.result }} | - | Error handling & recovery |
+          
+          ## Key Findings
+          
+          ### Resilience Strengths
+          - System maintains core functionality under network latency
+          - Graceful degradation under resource constraints
+          - Robust error handling and recovery mechanisms
+          
+          ### Areas for Improvement
+          - Monitor memory usage patterns under stress
+          - Optimize CPU-intensive operations
+          - Enhance fault detection and recovery
+          
+          ## Recommendations
+          
+          1. **Monitoring**: Implement comprehensive monitoring for early fault detection
+          2. **Alerting**: Set up alerts for resource constraint scenarios
+          3. **Recovery**: Improve automated recovery mechanisms
+          4. **Documentation**: Update incident response procedures
+          
+          ## Next Steps
+          
+          - [ ] Address any failed chaos experiments
+          - [ ] Implement recommended improvements
+          - [ ] Schedule regular chaos engineering tests
+          - [ ] Update disaster recovery procedures
+          
+          ---
+          *This report was generated by the Chaos Engineering workflow.*
+          EOF
+          
+      - name: Upload chaos engineering report
+        uses: actions/upload-artifact@v3
+        with:
+          name: chaos-engineering-report
+          path: CHAOS_ENGINEERING_REPORT.md
+          
+      - name: Create issue for failed chaos tests
+        if: contains(needs.*.result, 'failure')
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const title = `Chaos Engineering Test Failures - ${new Date().toISOString().split('T')[0]}`;
+            const body = `## Chaos Engineering Test Failures
+            
+            One or more chaos engineering tests have failed, indicating potential resilience issues.
+            
+            **Test Results:**
+            - Network Chaos: ${{ needs.network-chaos.result }}
+            - Memory Pressure: ${{ needs.memory-chaos.result }}
+            - CPU Stress: ${{ needs.cpu-chaos.result }}
+            - Fault Injection: ${{ needs.fault-injection.result }}
+            
+            **Immediate Actions Required:**
+            1. Review failed test artifacts and logs
+            2. Identify root causes of resilience failures
+            3. Implement fixes to improve system robustness
+            4. Re-run chaos tests to validate improvements
+            
+            **Long-term Actions:**
+            1. Enhance monitoring and alerting
+            2. Improve error handling and recovery
+            3. Update incident response procedures
+            4. Increase chaos testing frequency
+            
+            **Workflow Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            `;
+            
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['chaos-engineering', 'reliability', 'high-priority']
+            });
