@@ -1,0 +1,76 @@
+# CODEOWNERS file for Model Card Generator
+# This file defines who is responsible for code review and ownership
+
+# Global owners (fallback for any file not specifically covered)
+* @terragonlabs/core-team
+
+# Core application code
+/src/ @terragonlabs/core-team @terragonlabs/backend-team
+
+# Testing infrastructure
+/tests/ @terragonlabs/core-team @terragonlabs/qa-team
+
+# Documentation
+/docs/ @terragonlabs/core-team @terragonlabs/docs-team
+README.md @terragonlabs/core-team @terragonlabs/docs-team
+CHANGELOG.md @terragonlabs/core-team
+CONTRIBUTING.md @terragonlabs/core-team @terragonlabs/docs-team
+
+# CI/CD and infrastructure
+/.github/ @terragonlabs/devops-team @terragonlabs/core-team
+/scripts/ @terragonlabs/devops-team @terragonlabs/core-team
+/monitoring/ @terragonlabs/devops-team
+Dockerfile @terragonlabs/devops-team
+docker-compose.yml @terragonlabs/devops-team
+.dockerignore @terragonlabs/devops-team
+
+# Build and package configuration
+pyproject.toml @terragonlabs/core-team
+Makefile @terragonlabs/devops-team @terragonlabs/core-team
+requirements*.txt @terragonlabs/core-team
+
+# Security and compliance
+SECURITY.md @terragonlabs/security-team @terragonlabs/core-team
+.bandit @terragonlabs/security-team
+.safety @terragonlabs/security-team
+
+# Templates and schemas
+/templates/ @terragonlabs/core-team @terragonlabs/product-team
+/src/modelcard_generator/templates/ @terragonlabs/core-team @terragonlabs/product-team
+/src/modelcard_generator/schemas/ @terragonlabs/core-team @terragonlabs/product-team
+
+# Development environment
+.devcontainer/ @terragonlabs/devops-team
+.vscode/ @terragonlabs/core-team
+.editorconfig @terragonlabs/core-team
+.gitignore @terragonlabs/core-team
+
+# Code quality and linting
+.pre-commit-config.yaml @terragonlabs/core-team
+.flake8 @terragonlabs/core-team
+.mypy.ini @terragonlabs/core-team
+ruff.toml @terragonlabs/core-team
+
+# Legal and licensing
+LICENSE @terragonlabs/legal-team @terragonlabs/core-team
+LICENSE_HEADER.txt @terragonlabs/legal-team @terragonlabs/core-team
+CODE_OF_CONDUCT.md @terragonlabs/core-team
+
+# Project configuration
+PROJECT_CHARTER.md @terragonlabs/product-team @terragonlabs/core-team
+.github/project-metrics.json @terragonlabs/devops-team @terragonlabs/core-team
+
+# Deployment and configuration
+/kubernetes/ @terragonlabs/devops-team @terragonlabs/sre-team
+/terraform/ @terragonlabs/devops-team @terragonlabs/sre-team
+
+# Individual team leads for specific areas
+/src/modelcard_generator/cli/ @danieleschmidt
+/src/modelcard_generator/integrations/ @terragonlabs/integrations-team
+/src/modelcard_generator/security/ @terragonlabs/security-team
+/src/modelcard_generator/monitoring/ @terragonlabs/devops-team
+
+# Specific file overrides for critical components
+/src/modelcard_generator/core.py @danieleschmidt @terragonlabs/senior-engineers
+/src/modelcard_generator/generator.py @danieleschmidt @terragonlabs/senior-engineers
+/src/modelcard_generator/validators/ @terragonlabs/qa-team @terragonlabs/security-team
