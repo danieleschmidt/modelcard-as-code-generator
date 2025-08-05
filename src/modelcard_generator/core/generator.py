@@ -3,15 +3,18 @@
 import json
 import yaml
 import csv
-import logging
+import time
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Union
 from datetime import datetime
 
 from .models import ModelCard, CardConfig, ModelDetails, TrainingDetails, PerformanceMetric
+from .exceptions import DataSourceError, ValidationError, ModelCardError
+from .security import sanitizer, scan_for_vulnerabilities
+from .logging_config import get_logger
+from .config import get_config
 
-
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class DataSourceParser:
@@ -19,22 +22,128 @@ class DataSourceParser:
     
     @staticmethod
     def parse_json(file_path: Union[str, Path]) -> Dict[str, Any]:
-        """Parse JSON evaluation results."""
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        """Parse JSON evaluation results with security and error handling."""
+        try:
+            path = Path(file_path)
+            if not path.exists():
+                raise DataSourceError(str(path), "File not found")
+            
+            # Validate file extension
+            if path.suffix.lower() not in ['.json']:
+                raise DataSourceError(str(path), f"Invalid file extension: {path.suffix}")
+            
+            # Check file size
+            config = get_config()
+            if path.stat().st_size > config.security.max_file_size:
+                raise DataSourceError(str(path), "File too large")
+            
+            with open(path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                
+                # Security scan if enabled
+                if config.security.scan_content:
+                    scan_result = scan_for_vulnerabilities(content)
+                    if not scan_result["passed"]:
+                        raise DataSourceError(str(path), "Security scan failed", 
+                                           details={"vulnerabilities": scan_result["vulnerabilities"]})
+                
+                # Parse and sanitize
+                data = json.loads(content)
+                return sanitizer.validate_json(data)
+                
+        except json.JSONDecodeError as e:
+            raise DataSourceError(str(file_path), f"Invalid JSON format: {e}")
+        except Exception as e:
+            if isinstance(e, DataSourceError):
+                raise
+            raise DataSourceError(str(file_path), f"Failed to parse JSON: {e}")
     
     @staticmethod
     def parse_yaml(file_path: Union[str, Path]) -> Dict[str, Any]:
-        """Parse YAML configuration files."""
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return yaml.safe_load(f)
+        """Parse YAML configuration files with security and error handling."""
+        try:
+            path = Path(file_path)
+            if not path.exists():
+                raise DataSourceError(str(path), "File not found")
+            
+            # Validate file extension
+            if path.suffix.lower() not in ['.yaml', '.yml']:
+                raise DataSourceError(str(path), f"Invalid file extension: {path.suffix}")
+            
+            # Check file size
+            config = get_config()
+            if path.stat().st_size > config.security.max_file_size:
+                raise DataSourceError(str(path), "File too large")
+            
+            with open(path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                
+                # Security scan if enabled
+                if config.security.scan_content:
+                    scan_result = scan_for_vulnerabilities(content)
+                    if not scan_result["passed"]:
+                        raise DataSourceError(str(path), "Security scan failed", 
+                                           details={"vulnerabilities": scan_result["vulnerabilities"]})
+                
+                # Parse and sanitize
+                data = yaml.safe_load(content)
+                return sanitizer.validate_json(data or {})
+                
+        except yaml.YAMLError as e:
+            raise DataSourceError(str(file_path), f"Invalid YAML format: {e}")
+        except Exception as e:
+            if isinstance(e, DataSourceError):
+                raise
+            raise DataSourceError(str(file_path), f"Failed to parse YAML: {e}")
     
     @staticmethod
     def parse_csv(file_path: Union[str, Path]) -> List[Dict[str, Any]]:
-        """Parse CSV evaluation results."""
-        with open(file_path, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            return list(reader)
+        """Parse CSV evaluation results with security and error handling."""
+        try:
+            path = Path(file_path)
+            if not path.exists():
+                raise DataSourceError(str(path), "File not found")
+            
+            # Validate file extension
+            if path.suffix.lower() not in ['.csv', '.tsv']:
+                raise DataSourceError(str(path), f"Invalid file extension: {path.suffix}")
+            
+            # Check file size
+            config = get_config()
+            if path.stat().st_size > config.security.max_file_size:
+                raise DataSourceError(str(path), "File too large")
+            
+            delimiter = '\t' if path.suffix.lower() == '.tsv' else ','
+            
+            with open(path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                
+                # Security scan if enabled
+                if config.security.scan_content:
+                    scan_result = scan_for_vulnerabilities(content)
+                    if not scan_result["passed"]:
+                        raise DataSourceError(str(path), "Security scan failed", 
+                                           details={"vulnerabilities": scan_result["vulnerabilities"]})
+            
+            # Parse CSV
+            with open(path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f, delimiter=delimiter)
+                data = []
+                for row_idx, row in enumerate(reader):
+                    if row_idx > 10000:  # Limit rows for safety
+                        logger.warning(f"CSV file truncated at 10000 rows")
+                        break
+                    # Sanitize each row
+                    sanitized_row = sanitizer._sanitize_dict(row)
+                    data.append(sanitized_row)
+                return data
+                
+        except csv.Error as e:
+            raise DataSourceError(str(file_path), f"Invalid CSV format: {e}")
+        except Exception as e:
+            if isinstance(e, DataSourceError):
+                raise
+            raise DataSourceError(str(file_path), f"Failed to parse CSV: {e}")
     
     @staticmethod
     def parse_training_log(file_path: Union[str, Path]) -> Dict[str, Any]:
@@ -86,6 +195,8 @@ class ModelCardGenerator:
     def __init__(self, config: Optional[CardConfig] = None):
         self.config = config or CardConfig()
         self.parser = DataSourceParser()
+        self.app_config = get_config()
+        logger.set_context(component="generator", format=self.config.format.value)
         
     def generate(
         self,
@@ -95,35 +206,85 @@ class ModelCardGenerator:
         model_config: Optional[Union[str, Path, Dict[str, Any]]] = None,
         **kwargs
     ) -> ModelCard:
-        """Generate a model card from various input sources."""
+        """Generate a model card from various input sources with comprehensive error handling."""
         
-        card = ModelCard(config=self.config)
+        start_time = time.time()
+        operation = "model_card_generation"
         
-        # Process evaluation results
-        if eval_results:
-            self._process_evaluation_results(card, eval_results)
-        
-        # Process training history
-        if training_history:
-            self._process_training_history(card, training_history)
-        
-        # Process dataset information
-        if dataset_info:
-            self._process_dataset_info(card, dataset_info)
-        
-        # Process model configuration
-        if model_config:
-            self._process_model_config(card, model_config)
-        
-        # Apply any additional metadata from kwargs
-        self._apply_additional_metadata(card, kwargs)
-        
-        # Auto-populate missing information if enabled
-        if self.config.auto_populate:
-            self._auto_populate_sections(card)
-        
-        logger.info(f"Generated model card for {card.model_details.name}")
-        return card
+        try:
+            logger.log_operation_start(operation, 
+                                     eval_results=bool(eval_results),
+                                     training_history=bool(training_history),
+                                     dataset_info=bool(dataset_info),
+                                     model_config=bool(model_config))
+            
+            # Sanitize kwargs
+            if kwargs:
+                kwargs = sanitizer._sanitize_dict(kwargs)
+            
+            card = ModelCard(config=self.config)
+            
+            # Process inputs with individual error handling
+            with logger.context(step="processing_inputs"):
+                if eval_results:
+                    self._process_evaluation_results(card, eval_results)
+                
+                if training_history:
+                    self._process_training_history(card, training_history)
+                
+                if dataset_info:
+                    self._process_dataset_info(card, dataset_info)
+                
+                if model_config:
+                    self._process_model_config(card, model_config)
+            
+            # Apply additional metadata
+            with logger.context(step="applying_metadata"):
+                self._apply_additional_metadata(card, kwargs)
+            
+            # Auto-populate missing information if enabled
+            if self.config.auto_populate:
+                with logger.context(step="auto_populate"):
+                    self._auto_populate_sections(card)
+            
+            # Validate if auto-validation is enabled
+            if self.app_config.auto_validate:
+                with logger.context(step="validation"):
+                    from .validator import Validator
+                    validator = Validator()
+                    result = validator.validate_schema(card, self.config.format.value)
+                    logger.log_validation_result(result.is_valid, result.score, result.issues)
+                    
+                    if not result.is_valid and self.app_config.validation.enforce_compliance:
+                        raise ValidationError("Model card validation failed", result.issues)
+            
+            # Security scan if enabled
+            if self.app_config.auto_scan_security:
+                with logger.context(step="security_scan"):
+                    content = card.render()
+                    scan_result = scan_for_vulnerabilities(content)
+                    logger.log_security_check("content_scan", scan_result["passed"], scan_result)
+                    
+                    if not scan_result["passed"]:
+                        logger.warning("Security vulnerabilities detected in generated content")
+            
+            duration_ms = (time.time() - start_time) * 1000
+            logger.log_operation_success(operation, duration_ms, 
+                                       model_name=card.model_details.name,
+                                       metrics_count=len(card.evaluation_results))
+            
+            return card
+            
+        except Exception as e:
+            duration_ms = (time.time() - start_time) * 1000
+            logger.log_operation_failure(operation, e, duration_ms)
+            
+            # Re-raise with context
+            if isinstance(e, ModelCardError):
+                raise
+            else:
+                raise ModelCardError(f"Model card generation failed: {e}", 
+                                   details={"operation": operation, "duration_ms": duration_ms})
     
     def from_wandb(self, run_id: str, project: Optional[str] = None) -> ModelCard:
         """Generate model card from Weights & Biases run."""

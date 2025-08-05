@@ -2,7 +2,8 @@
 
 import click
 import json
-import logging
+import sys
+import traceback
 from pathlib import Path
 from typing import Optional, List
 
@@ -10,23 +11,43 @@ from ..core.generator import ModelCardGenerator
 from ..core.models import CardConfig, CardFormat
 from ..core.validator import Validator, ComplianceStandard
 from ..core.drift_detector import DriftDetector
+from ..core.exceptions import ModelCardError, ValidationError, SecurityError, ConfigurationError
+from ..core.logging_config import get_logger, configure_logging
+from ..core.config import get_config, load_config
+from ..core.security import scanner
 from ..formats.huggingface import HuggingFaceCard
 from ..formats.google import GoogleModelCard
 from ..formats.eu_cra import EUCRAModelCard
 
-
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @click.group()
 @click.version_option(version="1.0.0", prog_name="mcg")
 @click.option('--verbose', '-v', is_flag=True, help='Enable verbose logging')
-def cli(verbose: bool):
+@click.option('--config-file', type=click.Path(exists=True), help='Configuration file path')
+@click.option('--log-file', type=click.Path(), help='Log file path')
+@click.option('--structured-logs', is_flag=True, help='Enable structured JSON logging')
+def cli(verbose: bool, config_file: Optional[str], log_file: Optional[str], structured_logs: bool):
     """Model Card Generator - Automated ML documentation for compliance and governance."""
-    if verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
+    try:
+        # Load configuration
+        if config_file:
+            load_config(config_file)
+        
+        # Configure logging
+        log_level = "DEBUG" if verbose else "INFO"
+        configure_logging(
+            level=log_level,
+            log_file=log_file,
+            structured=structured_logs
+        )
+        
+        logger.info("Model Card Generator CLI started")
+        
+    except Exception as e:
+        click.echo(f"❌ Initialization failed: {e}", err=True)
+        sys.exit(1)
 
 
 @cli.command()

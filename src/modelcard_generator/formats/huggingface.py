@@ -24,7 +24,7 @@ class HuggingFaceCard(ModelCard):
             "widget": []
         }
     
-    def model_details(
+    def set_model_details(
         self,
         name: str,
         languages: Optional[List[str]] = None,
