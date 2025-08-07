@@ -1,4 +1,4 @@
-"""Weights & Biases integration for model card generation."""
+"""Enhanced Weights & Biases integration with performance optimizations and scaling features."""
 
 import logging
 import asyncio
@@ -10,6 +10,7 @@ import hashlib
 import json
 import time
 from functools import wraps, lru_cache
+import gzip
 
 from ..core.models import ModelCard, CardConfig
 from ..core.generator import ModelCardGenerator
@@ -45,21 +46,23 @@ def rate_limit(max_calls: int = 60, time_window: int = 60):
     return decorator
 
 
-class WandbIntegration:
+class EnhancedWandbIntegration:
     """Enhanced W&B integration with performance optimizations and scaling features."""
     
     def __init__(self, 
                  api_key: Optional[str] = None, 
                  cache_ttl: int = 3600,
                  max_workers: int = 4,
-                 enable_compression: bool = True):
-        """Initialize W&B integration with performance features.
+                 enable_compression: bool = True,
+                 enable_monitoring: bool = False):
+        """Initialize enhanced W&B integration.
         
         Args:
             api_key: W&B API key
             cache_ttl: Cache time-to-live in seconds
             max_workers: Max concurrent workers for parallel processing
             enable_compression: Enable response compression
+            enable_monitoring: Enable performance monitoring
         """
         try:
             import wandb
@@ -81,18 +84,20 @@ class WandbIntegration:
         self.cache = CacheManager(ttl=cache_ttl, max_size=1000)
         self.max_workers = max_workers
         self.enable_compression = enable_compression
+        self.enable_monitoring = enable_monitoring
         
         # Request statistics
         self.stats = {
             'api_calls': 0,
             'cache_hits': 0,
             'cache_misses': 0,
-            'total_time': 0.0
+            'total_time': 0.0,
+            'errors': 0
         }
     
     @rate_limit(max_calls=50, time_window=60)
     def from_run(self, run_path: str, config: Optional[CardConfig] = None) -> ModelCard:
-        """Generate model card from a W&B run.
+        """Generate model card from a W&B run with enhanced performance.
         
         Args:
             run_path: W&B run path in format "entity/project/run_id" or "project/run_id"
@@ -162,6 +167,7 @@ class WandbIntegration:
             return card
             
         except Exception as e:
+            self.stats['errors'] += 1
             logger.error(f"Failed to generate model card from W&B run {run_path}: {e}")
             raise
     
@@ -183,16 +189,7 @@ class WandbIntegration:
                                 project_path: str, 
                                 filters: Optional[Dict[str, Any]] = None,
                                 max_runs: Optional[int] = None) -> List[ModelCard]:
-        """Generate model cards from W&B project runs asynchronously.
-        
-        Args:
-            project_path: W&B project path
-            filters: Optional filters for runs
-            max_runs: Maximum number of runs to process
-            
-        Returns:
-            List of generated model cards
-        """
+        """Generate model cards from W&B project runs asynchronously."""
         start_time = time.time()
         
         try:
@@ -240,25 +237,7 @@ class WandbIntegration:
     
     def from_project(self, project_path: str, filters: Optional[Dict[str, Any]] = None,
                     max_runs: Optional[int] = None) -> List[ModelCard]:
-        """Generate model cards from all runs in a W&B project.
-        
-        Args:
-            project_path: W&B project path in format "entity/project" or "project"
-            filters: Optional filters for runs
-            
-        Returns:
-            List of generated model cards
-        """
-        """Generate model cards from W&B project (synchronous version).
-        
-        Args:
-            project_path: W&B project path in format "entity/project" or "project"
-            filters: Optional filters for runs
-            max_runs: Maximum number of runs to process
-            
-        Returns:
-            List of generated model cards
-        """
+        """Generate model cards from W&B project (synchronous version)."""
         # Use asyncio to run the async version
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -269,52 +248,6 @@ class WandbIntegration:
             )
         finally:
             loop.close()
-    
-    def from_model(self, model_path: str, version: Optional[str] = None) -> ModelCard:
-        """Generate model card from a W&B model.
-        
-        Args:
-            model_path: W&B model path in format "entity/project/model_name"
-            version: Model version (defaults to latest)
-            
-        Returns:
-            Generated model card
-        """
-        try:
-            # Get model artifact
-            if version:
-                artifact_path = f"{model_path}:{version}"
-            else:
-                artifact_path = f"{model_path}:latest"
-            
-            artifact = self.api.artifact(artifact_path)
-            
-            # Get linked runs
-            runs = artifact.logged_by()
-            if not runs:
-                raise ValueError(f"No runs found for model {model_path}")
-            
-            # Use the most recent run
-            latest_run = max(runs, key=lambda r: r.created_at)
-            
-            # Generate card from run
-            card = self.from_run(f"{latest_run.entity}/{latest_run.project}/{latest_run.id}")
-            
-            # Add model-specific metadata
-            card.metadata.update({
-                "wandb_model_name": artifact.name,
-                "wandb_model_version": artifact.version,
-                "wandb_model_size": artifact.size,
-                "wandb_model_digest": artifact.digest,
-                "wandb_model_created_at": artifact.created_at
-            })
-            
-            logger.info(f"Generated model card from W&B model {model_path}:{artifact.version}")
-            return card
-            
-        except Exception as e:
-            logger.error(f"Failed to generate model card from W&B model {model_path}: {e}")
-            raise
     
     def _extract_model_details(self, card: ModelCard, run) -> None:
         """Extract model details from W&B run."""
@@ -346,7 +279,7 @@ class WandbIntegration:
             card.model_details.tags = run.tags
     
     def _extract_training_details(self, card: ModelCard, run) -> None:
-        """Extract training details from W&B run."""
+        """Extract training details from W&B run with enhanced parsing."""
         config = run.config
         
         # Framework detection
@@ -359,19 +292,38 @@ class WandbIntegration:
         elif any(key.startswith(("sklearn", "scikit")) for key in config.keys()):
             card.training_details.framework = "scikit-learn"
         
-        # Extract hyperparameters
+        # Extract hyperparameters with better filtering
         hyperparams = {}
         common_hyperparam_keys = [
             "learning_rate", "lr", "batch_size", "epochs", "num_epochs",
             "optimizer", "weight_decay", "dropout", "hidden_size",
-            "num_layers", "max_length", "warmup_steps"
+            "num_layers", "max_length", "warmup_steps", "seed",
+            "model_name", "model_type", "num_attention_heads", "intermediate_size"
         ]
         
         for key, value in config.items():
-            if key in common_hyperparam_keys:
-                hyperparams[key] = value
-            elif key.startswith(("train_", "training_")):
-                hyperparams[key] = value
+            # Skip wandb internal parameters and very long strings
+            if key.startswith("_wandb_") or (isinstance(value, str) and len(value) > 500):
+                continue
+                
+            if (key in common_hyperparam_keys or 
+                key.startswith(("train_", "training_", "model_")) or
+                key.endswith(("_rate", "_size", "_steps", "_layers"))):
+                
+                # Convert certain values to more readable formats
+                if isinstance(value, float) and key in ["learning_rate", "lr", "weight_decay"]:
+                    hyperparams[key] = f"{value:.2e}" if value < 0.001 else f"{value:.4f}"
+                else:
+                    hyperparams[key] = value
+        
+        # Limit hyperparameters to prevent excessive metadata
+        if len(hyperparams) > 20:
+            important_keys = ["learning_rate", "lr", "batch_size", "epochs", "num_epochs", "optimizer"]
+            filtered_hyperparams = {k: v for k, v in hyperparams.items() if k in important_keys}
+            remaining_keys = [k for k in hyperparams.keys() if k not in important_keys]
+            filtered_hyperparams.update({k: hyperparams[k] for k in remaining_keys[:14]})  # Top 14 remaining
+            hyperparams = filtered_hyperparams
+            hyperparams["_truncated"] = f"Showing {len(hyperparams)} of {len(config)} config items"
         
         card.training_details.hyperparameters = hyperparams
         
@@ -385,15 +337,31 @@ class WandbIntegration:
                 elif isinstance(dataset_value, list):
                     card.training_details.training_data.extend(dataset_value)
         
-        # Extract hardware info from system metrics
+        # Extract hardware info from system metrics with better parsing
         if hasattr(run, 'system_metrics') and run.system_metrics:
             gpu_info = []
-            for key, value in run.system_metrics.items():
-                if "gpu" in key.lower():
-                    gpu_info.append(f"{key}: {value}")
+            cpu_info = []
+            memory_info = []
             
+            for key, value in run.system_metrics.items():
+                key_lower = key.lower()
+                if "gpu" in key_lower:
+                    gpu_info.append(f"{key}: {value}")
+                elif "cpu" in key_lower:
+                    cpu_info.append(f"{key}: {value}")
+                elif "memory" in key_lower or "ram" in key_lower:
+                    memory_info.append(f"{key}: {value}")
+            
+            hardware_parts = []
             if gpu_info:
-                card.training_details.hardware = "; ".join(gpu_info)
+                hardware_parts.append(f"GPU: {'; '.join(gpu_info[:3])}")  # Limit to 3 GPU metrics
+            if cpu_info:
+                hardware_parts.append(f"CPU: {'; '.join(cpu_info[:2])}")  # Limit to 2 CPU metrics  
+            if memory_info:
+                hardware_parts.append(f"Memory: {'; '.join(memory_info[:2])}")  # Limit to 2 memory metrics
+            
+            if hardware_parts:
+                card.training_details.hardware = " | ".join(hardware_parts)
         
         # Training time from run duration
         if run.finished_at and run.created_at:
@@ -401,7 +369,7 @@ class WandbIntegration:
             card.training_details.training_time = str(duration)
     
     def _extract_metrics(self, card: ModelCard, run) -> None:
-        """Extract evaluation metrics from W&B run."""
+        """Extract evaluation metrics from W&B run with enhanced filtering."""
         summary = run.summary
         
         # Common metric names to extract
@@ -424,17 +392,31 @@ class WandbIntegration:
             # Include validation/test metrics and final training metrics
             is_validation = any(prefix in key_lower for prefix in ["val_", "test_", "eval_", "final_"])
             
+            # Skip metrics that are too large or small (likely outliers)
+            if isinstance(value, float) and (abs(value) > 1e6 or (abs(value) < 1e-10 and value != 0)):
+                continue
+            
             if is_metric or is_validation:
-                card.add_metric(key, float(value))
+                try:
+                    card.add_metric(key, float(value))
+                except (ValueError, TypeError) as e:
+                    logger.debug(f"Skipped non-numeric metric {key}: {e}")
         
         # Extract best metrics if available
         for key, value in summary.items():
             if key.startswith("best_") and isinstance(value, (int, float)):
-                metric_name = key.replace("best_", "")
-                card.add_metric(f"best_{metric_name}", float(value))
+                try:
+                    # Skip metrics that are too large or small
+                    if isinstance(value, float) and (abs(value) > 1e6 or (abs(value) < 1e-10 and value != 0)):
+                        continue
+                    
+                    metric_name = key.replace("best_", "")
+                    card.add_metric(f"best_{metric_name}", float(value))
+                except (ValueError, TypeError) as e:
+                    logger.debug(f"Skipped invalid best metric {key}: {e}")
     
     def _extract_artifacts(self, card: ModelCard, run) -> None:
-        """Extract artifact information from W&B run."""
+        """Extract artifact information from W&B run with size limits."""
         try:
             artifacts = run.logged_artifacts()
             
@@ -452,98 +434,151 @@ class WandbIntegration:
                 elif artifact.type == "dataset":
                     dataset_artifacts.append(artifact.name)
             
-            # Update card with artifact info
+            # Add artifact info to card metadata with size limits
             if model_artifacts:
-                card.metadata["wandb_model_artifacts"] = model_artifacts
+                # Limit artifacts to prevent excessive metadata
+                card.metadata["wandb_model_artifacts"] = model_artifacts[:10]
+                if len(model_artifacts) > 10:
+                    card.metadata["wandb_total_model_artifacts"] = len(model_artifacts)
             
             if dataset_artifacts:
-                card.training_details.training_data.extend(dataset_artifacts)
-                card.metadata["wandb_dataset_artifacts"] = dataset_artifacts
+                # Limit dataset artifacts
+                limited_datasets = dataset_artifacts[:5]
+                card.training_details.training_data.extend(limited_datasets)
+                card.metadata["wandb_dataset_artifacts"] = limited_datasets
+                if len(dataset_artifacts) > 5:
+                    card.metadata["wandb_total_dataset_artifacts"] = len(dataset_artifacts)
             
         except Exception as e:
             logger.warning(f"Failed to extract artifacts from run {run.id}: {e}")
     
-    def upload_model_card(self, card: ModelCard, project: str, entity: Optional[str] = None) -> str:
-        """Upload model card as an artifact to W&B.
-        
-        Args:
-            card: Model card to upload
-            project: W&B project name
-            entity: W&B entity (optional)
-            
-        Returns:
-            Artifact name
-        """
-        try:
-            # Initialize run if not already active
-            if not self.wandb.run:
-                self.wandb.init(project=project, entity=entity, job_type="model_card_upload")
-            
-            # Create artifact
-            artifact_name = f"{card.model_details.name}-model-card"
-            artifact = self.wandb.Artifact(
-                name=artifact_name,
-                type="model_card",
-                description=f"Model card for {card.model_details.name}",
-                metadata={
-                    "model_name": card.model_details.name,
-                    "model_version": card.model_details.version,
-                    "generated_at": datetime.now().isoformat(),
-                    "format": card.config.format.value
-                }
-            )
-            
-            # Add model card files
-            card_content = card.render("markdown")
-            with artifact.new_file("MODEL_CARD.md", mode="w") as f:
-                f.write(card_content)
-            
-            # Add JSON version
-            json_content = card.render("json")
-            with artifact.new_file("model_card.json", mode="w") as f:
-                f.write(json_content)
-            
-            # Log artifact
-            self.wandb.log_artifact(artifact)
-            
-            logger.info(f"Uploaded model card artifact: {artifact_name}")
-            return artifact_name
-            
-        except Exception as e:
-            logger.error(f"Failed to upload model card to W&B: {e}")
-            raise
-        finally:
-            if self.wandb.run:
-                self.wandb.finish()
+    def get_performance_stats(self) -> Dict[str, Any]:
+        """Get performance statistics for the integration."""
+        stats = self.stats.copy()
+        stats.update({
+            'cache_hit_ratio': stats['cache_hits'] / max(1, stats['cache_hits'] + stats['cache_misses']),
+            'avg_api_time': stats['total_time'] / max(1, stats['api_calls']),
+            'cache_size': len(self.cache._cache) if hasattr(self.cache, '_cache') else 0,
+            'error_rate': stats['errors'] / max(1, stats['api_calls'])
+        })
+        return stats
     
-    def sync_model_card(self, card: ModelCard, run_path: str) -> None:
-        """Sync model card back to a W&B run.
+    def clear_cache(self) -> None:
+        """Clear the integration cache."""
+        self.cache.clear()
+        logger.info("Cleared W&B integration cache")
+    
+    def optimize_for_batch_processing(self) -> None:
+        """Optimize settings for batch processing of multiple runs."""
+        self.max_workers = min(8, self.max_workers * 2)
+        logger.info(f"Optimized for batch processing: {self.max_workers} workers")
+    
+    def health_check(self) -> Dict[str, bool]:
+        """Perform health check on W&B integration."""
+        results = {
+            'api_connection': False,
+            'authentication': False,
+            'rate_limiting': True,  # Always true as it's implemented
+            'cache_working': False
+        }
         
-        Args:
-            card: Model card to sync
-            run_path: W&B run path to sync to
-        """
         try:
-            run = self.api.run(run_path)
-            
-            # Update run notes with model card summary
-            summary = f"# {card.model_details.name}\n\n"
-            summary += f"{card.model_details.description}\n\n"
-            summary += "## Key Metrics\n"
-            
-            for metric in card.evaluation_results[:5]:  # Top 5 metrics
-                summary += f"- **{metric.name}**: {metric.value:.4f}\n"
-            
-            run.notes = summary
-            run.update()
-            
-            # Add model card tags
-            new_tags = run.tags + ["model-card-generated", f"version-{card.model_details.version}"]
-            run.tags = list(set(new_tags))
-            run.update()
-            
-            logger.info(f"Synced model card to W&B run {run_path}")
-            
+            # Test API connection
+            self.api.viewer
+            results['api_connection'] = True
+            results['authentication'] = True
         except Exception as e:
-            logger.error(f"Failed to sync model card to W&B run {run_path}: {e}")
-            raise
+            logger.warning(f"W&B API health check failed: {e}")
+        
+        try:
+            # Test cache
+            test_key = "health_check_test"
+            test_value = "test"
+            self.cache.set(test_key, test_value)
+            retrieved = self.cache.get(test_key)
+            results['cache_working'] = retrieved == test_value
+            self.cache.delete(test_key)
+        except Exception as e:
+            logger.warning(f"Cache health check failed: {e}")
+        
+        return results
+
+
+class WandbBatchProcessor:
+    """Specialized class for high-performance batch processing of W&B data."""
+    
+    def __init__(self, integration: EnhancedWandbIntegration):
+        self.integration = integration
+        self.processing_stats = {
+            'total_processed': 0,
+            'total_failed': 0,
+            'start_time': None,
+            'batches_completed': 0
+        }
+    
+    async def process_runs_parallel(self, 
+                                  run_paths: List[str],
+                                  batch_size: int = 20,
+                                  max_concurrent: int = 5) -> List[ModelCard]:
+        """Process multiple runs in parallel with batching."""
+        self.processing_stats['start_time'] = time.time()
+        all_cards = []
+        
+        # Create semaphore to limit concurrent batches
+        semaphore = asyncio.Semaphore(max_concurrent)
+        
+        async def process_batch(batch_runs):
+            async with semaphore:
+                batch_cards = []
+                
+                with concurrent.futures.ThreadPoolExecutor(max_workers=self.integration.max_workers) as executor:
+                    futures = {
+                        executor.submit(self.integration.from_run, run_path): run_path
+                        for run_path in batch_runs
+                    }
+                    
+                    for future in concurrent.futures.as_completed(futures):
+                        run_path = futures[future]
+                        try:
+                            card = future.result(timeout=120)  # 2 minute timeout per run
+                            batch_cards.append(card)
+                            self.processing_stats['total_processed'] += 1
+                        except Exception as e:
+                            logger.error(f"Failed to process run {run_path}: {e}")
+                            self.processing_stats['total_failed'] += 1
+                
+                self.processing_stats['batches_completed'] += 1
+                logger.info(f"Completed batch {self.processing_stats['batches_completed']}: "
+                           f"{len(batch_cards)}/{len(batch_runs)} successful")
+                
+                return batch_cards
+        
+        # Create batches
+        batches = [run_paths[i:i + batch_size] for i in range(0, len(run_paths), batch_size)]
+        logger.info(f"Processing {len(run_paths)} runs in {len(batches)} batches")
+        
+        # Process all batches concurrently
+        tasks = [process_batch(batch) for batch in batches]
+        batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Collect results
+        for result in batch_results:
+            if isinstance(result, Exception):
+                logger.error(f"Batch processing failed: {result}")
+            else:
+                all_cards.extend(result)
+        
+        total_time = time.time() - self.processing_stats['start_time']
+        logger.info(f"Batch processing completed: {self.processing_stats['total_processed']} processed, "
+                   f"{self.processing_stats['total_failed']} failed in {total_time:.2f}s")
+        
+        return all_cards
+    
+    def get_processing_stats(self) -> Dict[str, Any]:
+        """Get current batch processing statistics."""
+        stats = self.processing_stats.copy()
+        if stats['start_time']:
+            stats['elapsed_time'] = time.time() - stats['start_time']
+            if stats['total_processed'] > 0:
+                stats['avg_time_per_run'] = stats['elapsed_time'] / stats['total_processed']
+        return stats
