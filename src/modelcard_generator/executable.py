@@ -3,11 +3,19 @@
 import ast
 import sys
 import logging
-from typing import List, Dict, Any, Optional
+import subprocess
+import tempfile
+import contextlib
+import io
+from typing import List, Dict, Any, Optional, Union
 from dataclasses import dataclass, field
 from pathlib import Path
+import re
+import yaml
+import json
 
 from .core.models import ModelCard, CardConfig
+from .core.exceptions import ModelCardError, ValidationError
 
 
 logger = logging.getLogger(__name__)
@@ -309,43 +317,119 @@ def test_model_loading():
         
         return execution_results
     
-    def _run_single_test(self, test_code: str, test_name: str) -> TestResult:
-        """Run a single test and return result."""
+    def _run_single_test(self, test_code: str, test_name: str, timeout: int = 30) -> TestResult:
+        """Run a single test and return result with enhanced security and timeout.
+        
+        Args:
+            test_code: Test code to execute
+            test_name: Name of the test
+            timeout: Execution timeout in seconds
+        """
         import time
+        import signal
         
         start_time = time.time()
         
-        try:
-            # Create isolated namespace for test execution
-            test_globals = {
-                '__builtins__': __builtins__,
-                '__name__': '__main__',
-            }
-            
-            # Execute the test code
-            exec(test_code, test_globals)
-            
-            # If code defines a function, call it
-            if test_name in test_globals and callable(test_globals[test_name]):
-                test_globals[test_name]()
-            
-            execution_time = time.time() - start_time
-            
+        # Security: Check for dangerous operations
+        if self._contains_dangerous_code(test_code):
             return TestResult(
                 test_name=test_name,
-                passed=True,
-                execution_time=execution_time
+                passed=False,
+                error_message="Test contains potentially dangerous operations",
+                execution_time=0.0
             )
+        
+        try:
+            # Use subprocess for better isolation and timeout control
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+                f.write(test_code)
+                test_file_path = f.name
             
+            # Run test in isolated subprocess with timeout
+            try:
+                result = subprocess.run(
+                    [sys.executable, test_file_path],
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                    cwd=Path.cwd()
+                )
+                
+                execution_time = time.time() - start_time
+                
+                if result.returncode == 0:
+                    return TestResult(
+                        test_name=test_name,
+                        passed=True,
+                        execution_time=execution_time
+                    )
+                else:
+                    error_msg = result.stderr or result.stdout or "Test failed with no output"
+                    return TestResult(
+                        test_name=test_name,
+                        passed=False,
+                        error_message=error_msg.strip(),
+                        execution_time=execution_time
+                    )
+                    
+            except subprocess.TimeoutExpired:
+                return TestResult(
+                    test_name=test_name,
+                    passed=False,
+                    error_message=f"Test timed out after {timeout} seconds",
+                    execution_time=timeout
+                )
+            finally:
+                # Clean up temporary file
+                Path(test_file_path).unlink(missing_ok=True)
+                
         except Exception as e:
             execution_time = time.time() - start_time
+            logger.exception(f"Error running test {test_name}")
             
             return TestResult(
                 test_name=test_name,
                 passed=False,
-                error_message=str(e),
+                error_message=f"Test execution error: {str(e)}",
                 execution_time=execution_time
             )
+    
+    def _contains_dangerous_code(self, code: str) -> bool:
+        """Check if code contains potentially dangerous operations."""
+        dangerous_patterns = [
+            r'import\s+os',
+            r'import\s+subprocess',
+            r'import\s+sys',
+            r'__import__\s*\(',
+            r'eval\s*\(',
+            r'exec\s*\(',
+            r'open\s*\(',
+            r'file\s*\(',
+            r'\.write\s*\(',
+            r'\.delete\s*\(',
+            r'\.remove\s*\(',
+            r'shutil\.',
+            r'socket\.',
+            r'urllib\.',
+            r'requests\.',
+        ]
+        
+        # Allow specific safe operations
+        safe_exceptions = [
+            r'open\s*\([^)]*["\']r["\'][^)]*\)',  # Read-only file operations
+            r'pd\.read_csv',  # Pandas read operations
+            r'json\.load',    # JSON loading
+            r'yaml\.safe_load',  # YAML loading
+        ]
+        
+        for pattern in dangerous_patterns:
+            if re.search(pattern, code, re.IGNORECASE):
+                # Check if it's in the safe exceptions
+                is_safe = any(re.search(safe_pattern, code, re.IGNORECASE) for safe_pattern in safe_exceptions)
+                if not is_safe:
+                    return True
+        
+        return False
     
     def _check_requirements(self) -> List[str]:
         """Check if required packages are available."""

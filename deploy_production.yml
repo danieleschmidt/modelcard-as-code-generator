@@ -1,0 +1,149 @@
+---
+# Production deployment configuration
+python_version: "3.9+"
+environment: production
+
+dependencies:
+  - click>=8.0.0
+  - jinja2>=3.1.0
+  - pydantic>=2.0.0
+  - pyyaml>=6.0
+  - requests>=2.25.0
+  - rich>=13.0.0
+  - jsonschema>=4.0.0
+  - packaging>=21.0
+  - python-dateutil>=2.8.0
+  - toml>=0.10.0
+
+optional_dependencies:
+  ml_integrations:
+    - mlflow>=2.5.0
+    - wandb>=0.15.0
+    - huggingface-hub>=0.16.0
+    - dvc>=3.0.0
+    - gitpython>=3.1.0
+  
+  cli_tools:
+    - typer>=0.9.0
+    - rich-click>=1.6.0
+  
+  dev_tools:
+    - black>=23.0.0
+    - flake8>=6.0.0
+    - isort>=5.12.0
+    - mypy>=1.5.0
+    - ruff>=0.1.0
+    - bandit>=1.7.0
+    - safety>=2.3.0
+
+environment_variables:
+  MODELCARD_CACHE_TTL: "3600"
+  MODELCARD_LOG_LEVEL: "INFO"
+  MODELCARD_MAX_WORKERS: "4"
+  MODELCARD_ENABLE_MONITORING: "true"
+  MODELCARD_SECURITY_SCAN: "true"
+  WANDB_SILENT: "true"
+
+security:
+  scan_patterns:
+    - "eval\\s*\\("
+    - "exec\\s*\\("
+    - "__import__\\s*\\("
+    - "subprocess\\.call\\s*\\([^)]*shell\\s*=\\s*True"
+    - "os\\.system\\s*\\("
+    - "pickle\\.loads?\\s*\\("
+  
+  allowed_imports:
+    - json
+    - yaml
+    - pathlib
+    - datetime
+    - logging
+    - typing
+    - dataclasses
+    - functools
+    - itertools
+    - collections
+    - concurrent.futures
+    - asyncio
+
+health_checks:
+  endpoints:
+    - path: "/health"
+      timeout: 30
+      expected_status: 200
+    - path: "/version"
+      timeout: 10
+      expected_status: 200
+  
+  performance:
+    max_response_time: 5000  # ms
+    max_memory_usage: 512    # MB
+    max_cpu_usage: 80        # %
+  
+  interval: 60  # seconds
+
+monitoring:
+  metrics:
+    - api_calls_per_minute
+    - error_rate
+    - response_time_p95
+    - cache_hit_ratio
+    - memory_usage
+    - cpu_usage
+  
+  alerts:
+    - name: high_error_rate
+      condition: error_rate > 0.05
+      threshold: 5
+    - name: slow_response
+      condition: response_time_p95 > 5000
+      threshold: 3
+    - name: memory_leak
+      condition: memory_usage > 400
+      threshold: 10
+
+deployment:
+  rollback_enabled: true
+  rolling_update: true
+  max_unavailable: 1
+  max_surge: 1
+  
+  pre_deploy_hooks:
+    - "python3 -m pytest tests/unit/ -x"
+    - "python3 scripts/security-check.py"
+    - "python3 scripts/quality-check.py"
+  
+  post_deploy_hooks:
+    - "python3 scripts/health-check.py"
+    - "python3 scripts/smoke-test.py"
+
+scaling:
+  auto_scaling: true
+  min_replicas: 2
+  max_replicas: 10
+  target_cpu_utilization: 70
+  target_memory_utilization: 80
+
+backup:
+  enabled: true
+  retention_days: 30
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  
+  backup_items:
+    - configurations
+    - model_cards
+    - cache_data
+    - logs
+
+disaster_recovery:
+  rto: 60  # minutes - Recovery Time Objective
+  rpo: 15  # minutes - Recovery Point Objective
+  
+  backup_regions:
+    - us-west-2
+    - eu-west-1
+  
+  failover:
+    automatic: false
+    manual_approval_required: true
