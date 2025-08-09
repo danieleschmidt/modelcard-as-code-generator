@@ -208,9 +208,9 @@ def validate(card_path, standard, min_score, output, fix):
     mcg validate MODEL_CARD.md --standard eu-cra --min-score 0.9
     """
     try:
-        # Load model card (simplified - would need proper parsing)
+        # Load model card from file
         from ..core.models import ModelCard
-        card = ModelCard()  # In real implementation, would parse from file
+        card = ModelCard.load(card_path)
         
         validator = Validator()
         
@@ -313,9 +313,9 @@ def check_drift(card_path, against, threshold, fail_on_drift, output, update):
     mcg check-drift MODEL_CARD.md --against results/eval.json --threshold 0.05 --update
     """
     try:
-        # Load model card (simplified)
+        # Load model card from file
         from ..core.models import ModelCard
-        card = ModelCard()  # In real implementation, would parse from file
+        card = ModelCard.load(card_path)
         
         # Configure drift detector
         thresholds = {}
@@ -428,9 +428,9 @@ def update(card_path, eval_results, model_config, reason, auto_commit):
     try:
         click.echo(f"🔄 Updating model card: {card_path}")
         
-        # Load existing card (simplified)
+        # Load existing card from file
         from ..core.models import ModelCard
-        card = ModelCard()  # In real implementation, would parse from file
+        card = ModelCard.load(card_path)
         
         # Apply updates
         updates_applied = 0

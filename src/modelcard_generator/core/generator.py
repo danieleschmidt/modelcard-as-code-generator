@@ -7,12 +7,15 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Union
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import partial
 
 from .models import ModelCard, CardConfig, ModelDetails, TrainingDetails, PerformanceMetric
 from .exceptions import DataSourceError, ValidationError, ModelCardError
 from .security import sanitizer, scan_for_vulnerabilities
 from .logging_config import get_logger
 from .config import get_config
+from .cache_simple import cache_manager
 
 logger = get_logger(__name__)
 
@@ -20,12 +23,25 @@ logger = get_logger(__name__)
 class DataSourceParser:
     """Parse various data sources for model card generation."""
     
-    @staticmethod
-    def parse_json(file_path: Union[str, Path]) -> Dict[str, Any]:
+    def __init__(self):
+        self.cache = cache_manager.get_cache()
+    
+    def parse_json(self, file_path: Union[str, Path]) -> Dict[str, Any]:
         """Parse JSON evaluation results with security and error handling."""
         try:
             path = Path(file_path)
-            if not path.exists():
+            
+            # Create cache key based on file path and modification time
+            stat_info = path.stat() if path.exists() else None
+            if stat_info:
+                cache_key = f"json_parse:{path.absolute()}:{stat_info.st_mtime}:{stat_info.st_size}"
+                
+                # Check cache first
+                cached_data = self.cache.get(cache_key)
+                if cached_data is not None:
+                    logger.debug(f"Cache hit for JSON parsing: {path}")
+                    return cached_data
+            else:
                 raise DataSourceError(str(path), "File not found")
             
             # Validate file extension
@@ -49,7 +65,14 @@ class DataSourceParser:
                 
                 # Parse and sanitize
                 data = json.loads(content)
-                return sanitizer.validate_json(data)
+                sanitized_data = sanitizer.validate_json(data)
+                
+                # Cache the result (TTL: 5 minutes for file parsing)
+                if stat_info:
+                    self.cache.put(cache_key, sanitized_data, ttl_seconds=300)
+                    logger.debug(f"Cached JSON parsing result: {path}")
+                
+                return sanitized_data
                 
         except json.JSONDecodeError as e:
             raise DataSourceError(str(file_path), f"Invalid JSON format: {e}")
@@ -58,8 +81,7 @@ class DataSourceParser:
                 raise
             raise DataSourceError(str(file_path), f"Failed to parse JSON: {e}")
     
-    @staticmethod
-    def parse_yaml(file_path: Union[str, Path]) -> Dict[str, Any]:
+    def parse_yaml(self, file_path: Union[str, Path]) -> Dict[str, Any]:
         """Parse YAML configuration files with security and error handling."""
         try:
             path = Path(file_path)
@@ -96,8 +118,7 @@ class DataSourceParser:
                 raise
             raise DataSourceError(str(file_path), f"Failed to parse YAML: {e}")
     
-    @staticmethod
-    def parse_csv(file_path: Union[str, Path]) -> List[Dict[str, Any]]:
+    def parse_csv(self, file_path: Union[str, Path]) -> List[Dict[str, Any]]:
         """Parse CSV evaluation results with security and error handling."""
         try:
             path = Path(file_path)
@@ -145,8 +166,7 @@ class DataSourceParser:
                 raise
             raise DataSourceError(str(file_path), f"Failed to parse CSV: {e}")
     
-    @staticmethod
-    def parse_training_log(file_path: Union[str, Path]) -> Dict[str, Any]:
+    def parse_training_log(self, file_path: Union[str, Path]) -> Dict[str, Any]:
         """Parse training log files to extract metrics and metadata."""
         log_data = {"metrics": [], "hyperparameters": {}, "hardware": None}
         
@@ -196,6 +216,7 @@ class ModelCardGenerator:
         self.config = config or CardConfig()
         self.parser = DataSourceParser()
         self.app_config = get_config()
+        self.cache = cache_manager.get_cache()
         logger.set_context(component="generator", format=self.config.format.value)
         
     def generate(
@@ -285,6 +306,49 @@ class ModelCardGenerator:
             else:
                 raise ModelCardError(f"Model card generation failed: {e}", 
                                    details={"operation": operation, "duration_ms": duration_ms})
+    
+    def generate_batch(self, tasks: List[Dict[str, Any]], max_workers: Optional[int] = None) -> List[ModelCard]:
+        """Generate multiple model cards concurrently.
+        
+        Args:
+            tasks: List of task dictionaries, each containing parameters for generate()
+            max_workers: Maximum number of concurrent workers (defaults to CPU count)
+        
+        Returns:
+            List of generated ModelCard instances
+        """
+        max_workers = max_workers or min(len(tasks), 4)  # Reasonable default
+        results = []
+        failed_tasks = []
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_task = {}
+            for i, task in enumerate(tasks):
+                future = executor.submit(self.generate, **task)
+                future_to_task[future] = (i, task)
+            
+            # Collect results
+            for future in as_completed(future_to_task):
+                task_index, task = future_to_task[future]
+                try:
+                    result = future.result()
+                    results.append((task_index, result))
+                    logger.info(f"Batch task {task_index} completed successfully")
+                except Exception as e:
+                    failed_tasks.append((task_index, task, str(e)))
+                    logger.error(f"Batch task {task_index} failed: {e}")
+        
+        # Sort results by original task order
+        results.sort(key=lambda x: x[0])
+        ordered_results = [result for _, result in results]
+        
+        # Log batch summary
+        logger.info(f"Batch processing completed: {len(ordered_results)} successful, {len(failed_tasks)} failed")
+        if failed_tasks:
+            logger.warning(f"Failed tasks: {[(i, str(e)) for i, _, e in failed_tasks]}")
+        
+        return ordered_results
     
     def from_wandb(self, run_id: str, project: Optional[str] = None) -> ModelCard:
         """Generate model card from Weights & Biases run."""
