@@ -210,6 +210,169 @@ class ModelCard:
         
         self._log_change("Saved model card", {"path": str(path)})
     
+    @classmethod
+    def load(cls, file_path: Union[str, Path]) -> 'ModelCard':
+        """Load model card from file."""
+        path = Path(file_path)
+        
+        if not path.exists():
+            raise FileNotFoundError(f"Model card file not found: {path}")
+        
+        with open(path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Parse based on file extension and content
+        if path.suffix.lower() == '.json':
+            return cls._parse_json_card(content)
+        elif path.suffix.lower() in ['.md', '.txt']:
+            return cls._parse_markdown_card(content)
+        else:
+            # Try to detect format
+            if content.strip().startswith('{'):
+                return cls._parse_json_card(content)
+            else:
+                return cls._parse_markdown_card(content)
+    
+    @classmethod
+    def _parse_json_card(cls, content: str) -> 'ModelCard':
+        """Parse JSON format model card."""
+        import json
+        data = json.loads(content)
+        
+        card = cls()
+        
+        # Parse model details
+        if 'model_details' in data:
+            details = data['model_details']
+            card.model_details.name = details.get('name', '')
+            card.model_details.version = details.get('version', '')
+            card.model_details.description = details.get('description', '')
+            card.model_details.authors = details.get('authors', [])
+            card.model_details.license = details.get('license', '')
+            card.model_details.base_model = details.get('base_model', '')
+            card.model_details.language = details.get('language', [])
+            card.model_details.tags = details.get('tags', [])
+            card.model_details.datasets = details.get('datasets', [])
+        
+        # Parse intended use
+        if 'intended_use' in data:
+            card.intended_use = data['intended_use']
+        
+        # Parse training details
+        if 'training_details' in data:
+            training = data['training_details']
+            card.training_details.framework = training.get('framework', '')
+            card.training_details.model_architecture = training.get('model_architecture', '')
+            card.training_details.training_data = training.get('training_data', [])
+            card.training_details.preprocessing = training.get('preprocessing', '')
+            card.training_details.hyperparameters = training.get('hyperparameters', {})
+        
+        # Parse evaluation results
+        if 'evaluation_results' in data:
+            for metric_data in data['evaluation_results']:
+                if isinstance(metric_data, dict) and 'name' in metric_data and 'value' in metric_data:
+                    card.add_metric(
+                        metric_data['name'],
+                        metric_data['value'],
+                        confidence_interval=metric_data.get('confidence_interval')
+                    )
+        
+        # Parse limitations
+        if 'limitations' in data:
+            limitations = data['limitations']
+            if 'known_limitations' in limitations:
+                for limitation in limitations['known_limitations']:
+                    card.add_limitation(limitation)
+        
+        return card
+    
+    @classmethod
+    def _parse_markdown_card(cls, content: str) -> 'ModelCard':
+        """Parse Markdown format model card."""
+        import re
+        
+        card = cls()
+        
+        # Extract title (model name)
+        title_match = re.search(r'^#\s+(.+)$', content, re.MULTILINE)
+        if title_match:
+            card.model_details.name = title_match.group(1).strip()
+        
+        # Extract model details section
+        model_details_section = cls._extract_section(content, "Model Details")
+        if model_details_section:
+            # Parse version - look for both bullet point and regular formats
+            version_match = re.search(r'-\s*\*\*Version\*\*:\s*(.+)', model_details_section, re.IGNORECASE) or \
+                           re.search(r'Version["\s]*:?["\s]*(.*?)(?:\n|$)', model_details_section, re.IGNORECASE)
+            if version_match:
+                card.model_details.version = version_match.group(1).strip(' *-')
+            
+            # Parse authors - look for both bullet point and regular formats
+            authors_match = re.search(r'-\s*\*\*Authors?\*\*:\s*(.+)', model_details_section, re.IGNORECASE) or \
+                           re.search(r'Authors?["\s]*:?["\s]*(.*?)(?:\n|$)', model_details_section, re.IGNORECASE)
+            if authors_match:
+                authors_str = authors_match.group(1).strip(' *-')
+                if authors_str:
+                    card.model_details.authors = [a.strip() for a in authors_str.split(',')]
+            
+            # Parse license - look for both bullet point and regular formats
+            license_match = re.search(r'-\s*\*\*License\*\*:\s*(.+)', model_details_section, re.IGNORECASE) or \
+                           re.search(r'License["\s]*:?["\s]*(.*?)(?:\n|$)', model_details_section, re.IGNORECASE)
+            if license_match:
+                card.model_details.license = license_match.group(1).strip(' *-')
+        
+        # Extract intended use section
+        intended_use_section = cls._extract_section(content, "Intended Use")
+        if intended_use_section:
+            # Clean up the section text (remove markdown formatting)
+            cleaned_text = re.sub(r'^#+\s*', '', intended_use_section, flags=re.MULTILINE)
+            cleaned_text = cleaned_text.strip()
+            if cleaned_text:
+                card.intended_use = cleaned_text
+        
+        # Extract evaluation results
+        eval_section = cls._extract_section(content, "Evaluation Results")
+        if eval_section:
+            # Find metric lines like "- **accuracy**: 0.95"
+            metric_matches = re.findall(r'-\s*\*\*([^*]+)\*\*:\s*([\d.]+)', eval_section)
+            for name, value in metric_matches:
+                try:
+                    card.add_metric(name.strip(), float(value))
+                except ValueError:
+                    continue
+        
+        # Extract limitations
+        limitations_section = cls._extract_section(content, "Limitations")
+        if limitations_section:
+            # Find limitation lines like "- Some limitation"
+            limitation_matches = re.findall(r'-\s*(.+)$', limitations_section, re.MULTILINE)
+            for limitation in limitation_matches:
+                if limitation.strip():
+                    card.add_limitation(limitation.strip())
+        
+        # Extract training data from training details section
+        training_section = cls._extract_section(content, "Training Details")
+        if training_section:
+            # Look for dataset mentions
+            dataset_matches = re.findall(r'dataset[s]?[:\s]*([^\n]+)', training_section, re.IGNORECASE)
+            for dataset in dataset_matches:
+                card.training_details.training_data.append(dataset.strip())
+        
+        return card
+    
+    @staticmethod
+    def _extract_section(content: str, section_name: str) -> Optional[str]:
+        """Extract a section from markdown content."""
+        import re
+        
+        # Pattern to match section header and content until next header or end of file
+        pattern = rf'^#+\s*{re.escape(section_name)}\s*\n(.*?)(?=\n#+|\Z)'
+        match = re.search(pattern, content, re.MULTILINE | re.DOTALL | re.IGNORECASE)
+        
+        if match:
+            return match.group(1).strip()
+        return None
+    
     def export_jsonld(self, path: Union[str, Path]) -> None:
         """Export as JSON-LD for machine reading."""
         jsonld_data = {
