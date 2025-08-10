@@ -1,6 +1,9 @@
 """DVC integration for model card generation."""
 
-import yaml
+try:
+    import yaml
+except ImportError:
+    yaml = None
 import json
 import logging
 from pathlib import Path

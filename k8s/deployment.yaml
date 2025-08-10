@@ -1,0 +1,290 @@
+# Kubernetes deployment for Model Card Generator
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: modelcard-generator
+  namespace: ml-ops
+  labels:
+    app: modelcard-generator
+    component: core
+    version: v1.0.0
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: modelcard-generator
+  template:
+    metadata:
+      labels:
+        app: modelcard-generator
+        component: core
+        version: v1.0.0
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: modelcard-generator
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+      - name: modelcard-generator
+        image: terragonlabs/modelcard-generator:v1.0.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        env:
+        - name: MCG_ENVIRONMENT
+          value: "production"
+        - name: MCG_LOG_LEVEL
+          value: "INFO"
+        - name: MCG_OUTPUT_DIR
+          value: "/app/output"
+        - name: MCG_CACHE_DIR
+          value: "/app/cache"
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: modelcard-generator-secrets
+              key: redis-url
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 3
+        volumeMounts:
+        - name: output-storage
+          mountPath: /app/output
+        - name: cache-storage
+          mountPath: /app/cache
+        - name: config
+          mountPath: /app/config
+          readOnly: true
+        - name: secrets
+          mountPath: /app/secrets
+          readOnly: true
+      volumes:
+      - name: output-storage
+        persistentVolumeClaim:
+          claimName: modelcard-generator-output
+      - name: cache-storage
+        persistentVolumeClaim:
+          claimName: modelcard-generator-cache
+      - name: config
+        configMap:
+          name: modelcard-generator-config
+      - name: secrets
+        secret:
+          secretName: modelcard-generator-secrets
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      tolerations:
+      - key: "model-workloads"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - modelcard-generator
+              topologyKey: kubernetes.io/hostname
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: modelcard-generator
+  namespace: ml-ops
+  labels:
+    app: modelcard-generator
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: modelcard-generator
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: modelcard-generator
+  namespace: ml-ops
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: ml-ops
+  name: modelcard-generator
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: modelcard-generator
+  namespace: ml-ops
+subjects:
+- kind: ServiceAccount
+  name: modelcard-generator
+  namespace: ml-ops
+roleRef:
+  kind: Role
+  name: modelcard-generator
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: modelcard-generator-output
+  namespace: ml-ops
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: fast-ssd
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: modelcard-generator-cache
+  namespace: ml-ops
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: standard
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: modelcard-generator-config
+  namespace: ml-ops
+data:
+  config.yaml: |
+    logging:
+      level: INFO
+      structured: true
+    security:
+      enable_scanning: true
+      max_file_size: 104857600  # 100MB
+    validation:
+      min_completeness_score: 0.8
+      enforce_compliance: true
+    drift:
+      enabled: true
+      default_thresholds:
+        accuracy: 0.02
+        f1: 0.02
+        precision: 0.02
+        recall: 0.02
+    cache:
+      enabled: true
+      ttl_seconds: 3600
+      max_size_mb: 500
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: modelcard-generator-secrets
+  namespace: ml-ops
+type: Opaque
+data:
+  redis-url: cmVkaXM6Ly9yZWRpcy1zZXJ2aWNlOjYzNzk=  # base64 encoded redis://redis-service:6379
+  api-key: ""  # Add your API keys here (base64 encoded)
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: modelcard-generator
+  namespace: ml-ops
+spec:
+  podSelector:
+    matchLabels:
+      app: modelcard-generator
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    - podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443  # HTTPS outbound
