@@ -224,9 +224,19 @@ class DriftDetector:
             with open(file_path, 'r') as f:
                 return json.load(f)
         elif file_path.suffix in ['.yaml', '.yml']:
-            import yaml
-            with open(file_path, 'r') as f:
-                return yaml.safe_load(f)
+            try:
+                import yaml
+            except ImportError:
+                yaml = None
+            
+            if yaml is None:
+                raise DriftError("YAML support not available - install PyYAML")
+            
+            try:
+                with open(file_path, 'r') as f:
+                    return yaml.safe_load(f)
+            except Exception as e:
+                raise DriftError(f"Failed to load YAML file {file_path}: {e}")
         else:
             raise ValueError(f"Unsupported file format: {file_path.suffix}")
     

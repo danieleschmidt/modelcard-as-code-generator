@@ -1,8 +1,12 @@
 """Core model card generation engine."""
 
 import json
-import yaml
 import csv
+
+try:
+    import yaml
+except ImportError:
+    yaml = None
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Union
@@ -108,15 +112,18 @@ class DataSourceParser:
                                            details={"vulnerabilities": scan_result["vulnerabilities"]})
                 
                 # Parse and sanitize
+                if yaml is None:
+                    raise DataSourceError(str(file_path), "YAML support not available - install PyYAML")
                 data = yaml.safe_load(content)
                 return sanitizer.validate_json(data or {})
                 
-        except yaml.YAMLError as e:
-            raise DataSourceError(str(file_path), f"Invalid YAML format: {e}")
-        except Exception as e:
-            if isinstance(e, DataSourceError):
+        except Exception as yaml_error:
+            if yaml and hasattr(yaml, 'YAMLError') and isinstance(yaml_error, yaml.YAMLError):
+                raise DataSourceError(str(file_path), f"Invalid YAML format: {yaml_error}")
+            elif yaml_error.__class__.__name__ in ['DataSourceError']:
                 raise
-            raise DataSourceError(str(file_path), f"Failed to parse YAML: {e}")
+            else:
+                raise DataSourceError(str(file_path), f"Failed to parse YAML: {yaml_error}")
     
     def parse_csv(self, file_path: Union[str, Path]) -> List[Dict[str, Any]]:
         """Parse CSV evaluation results with security and error handling."""

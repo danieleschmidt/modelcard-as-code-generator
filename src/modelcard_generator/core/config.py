@@ -2,7 +2,11 @@
 
 import os
 import json
-import yaml
+
+try:
+    import yaml
+except ImportError:
+    yaml = None
 from pathlib import Path
 from typing import Any, Dict, Optional, Union, List
 from dataclasses import dataclass, field, asdict
@@ -232,6 +236,8 @@ class ConfigManager:
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 if path.suffix.lower() in ['.yaml', '.yml']:
+                    if yaml is None:
+                        raise ConfigurationError("yaml_support", "YAML support not available - install PyYAML")
                     data = yaml.safe_load(f)
                 elif path.suffix.lower() == '.json':
                     data = json.load(f)
@@ -334,6 +340,8 @@ class ConfigManager:
         try:
             with open(path, 'w', encoding='utf-8') as f:
                 if path.suffix.lower() in ['.yaml', '.yml']:
+                    if yaml is None:
+                        raise ConfigurationError("yaml_support", "YAML support not available - install PyYAML")
                     yaml.dump(config_data, f, default_flow_style=False, indent=2)
                 elif path.suffix.lower() == '.json':
                     json.dump(config_data, f, indent=2)

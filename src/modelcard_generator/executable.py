@@ -11,7 +11,10 @@ from typing import List, Dict, Any, Optional, Union
 from dataclasses import dataclass, field
 from pathlib import Path
 import re
-import yaml
+try:
+    import yaml
+except ImportError:
+    yaml = None
 import json
 
 from .core.models import ModelCard, CardConfig
@@ -84,7 +87,10 @@ class ExecutableCard(ModelCard):
         """
         test_code = f"""
 import json
-import yaml
+try:
+    import yaml
+except ImportError:
+    yaml = None
 from pathlib import Path
 
 def test_performance_claims():

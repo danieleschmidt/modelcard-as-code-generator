@@ -1,6 +1,9 @@
 """Hugging Face model card format implementation."""
 
-import yaml
+try:
+    import yaml
+except ImportError:
+    yaml = None
 from typing import Dict, List, Optional, Any
 from ..core.models import ModelCard, CardConfig, CardFormat
 

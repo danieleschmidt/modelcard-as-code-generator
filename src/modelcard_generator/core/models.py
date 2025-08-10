@@ -1,7 +1,11 @@
 """Core data models for model cards."""
 
 import json
-import yaml
+
+try:
+    import yaml
+except ImportError:
+    yaml = None
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
