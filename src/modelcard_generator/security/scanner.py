@@ -8,13 +8,13 @@ This module provides comprehensive security scanning including:
 - Compliance checking
 """
 
-import re
-import hashlib
-import logging
-from dataclasses import dataclass
-from typing import List, Dict, Any, Optional, Pattern, Tuple
-from pathlib import Path
 import json
+import logging
+import re
+from dataclasses import dataclass
+from pathlib import Path
+from re import Pattern
+from typing import Any, Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -32,7 +32,7 @@ class SecurityFinding:
 
 class SecretPattern:
     """Represents a pattern for detecting secrets."""
-    
+
     def __init__(self, name: str, pattern: str, description: str, severity: str = "high"):
         self.name = name
         self.pattern = re.compile(pattern, re.IGNORECASE | re.MULTILINE)
@@ -42,12 +42,12 @@ class SecretPattern:
 
 class SecretScanner:
     """Comprehensive secret scanner for model card content."""
-    
+
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.patterns = self._initialize_patterns()
         self.whitelist_patterns = self._initialize_whitelist()
-    
+
     def _initialize_patterns(self) -> List[SecretPattern]:
         """Initialize secret detection patterns."""
         return [
@@ -59,7 +59,7 @@ class SecretScanner:
                 "critical"
             ),
             SecretPattern(
-                "aws_secret_key", 
+                "aws_secret_key",
                 r"[A-Za-z0-9/+=]{40}",
                 "AWS Secret Access Key",
                 "critical"
@@ -82,7 +82,7 @@ class SecretScanner:
                 "Slack Token",
                 "medium"
             ),
-            
+
             # Database Credentials
             SecretPattern(
                 "connection_string",
@@ -96,7 +96,7 @@ class SecretScanner:
                 "SQL Password",
                 "high"
             ),
-            
+
             # Generic Secrets
             SecretPattern(
                 "api_key_generic",
@@ -116,7 +116,7 @@ class SecretScanner:
                 "Private Key",
                 "critical"
             ),
-            
+
             # URLs with credentials
             SecretPattern(
                 "url_with_credentials",
@@ -124,7 +124,7 @@ class SecretScanner:
                 "URL with embedded credentials",
                 "high"
             ),
-            
+
             # JWT Tokens
             SecretPattern(
                 "jwt_token",
@@ -132,7 +132,7 @@ class SecretScanner:
                 "JWT Token",
                 "medium"
             ),
-            
+
             # Encryption Keys
             SecretPattern(
                 "encryption_key",
@@ -140,7 +140,7 @@ class SecretScanner:
                 "Encryption Key",
                 "high"
             ),
-            
+
             # ML Platform Tokens
             SecretPattern(
                 "wandb_key",
@@ -155,7 +155,7 @@ class SecretScanner:
                 "medium"
             ),
         ]
-    
+
     def _initialize_whitelist(self) -> List[Pattern]:
         """Initialize patterns for whitelisting false positives."""
         return [
@@ -170,21 +170,21 @@ class SecretScanner:
             re.compile(r"\\$\\{[^}]+\\}", re.IGNORECASE),  # Environment variables
             re.compile(r"<[^>]+>", re.IGNORECASE),  # XML/HTML tags
         ]
-    
+
     def scan_text(self, text: str, source_name: str = "content") -> List[SecurityFinding]:
         """Scan text content for secrets and sensitive information."""
         findings = []
-        lines = text.split('\\n')
-        
+        lines = text.split("\\n")
+
         for line_num, line in enumerate(lines, 1):
             for pattern in self.patterns:
                 matches = pattern.pattern.finditer(line)
-                
+
                 for match in matches:
                     # Check if this is a whitelisted false positive
                     if self._is_whitelisted(match.group()):
                         continue
-                    
+
                     # Create security finding
                     finding = SecurityFinding(
                         type=f"secret_{pattern.name}",
@@ -197,17 +197,17 @@ class SecretScanner:
                         remediation=self._get_remediation(pattern.name)
                     )
                     findings.append(finding)
-        
+
         return findings
-    
+
     def scan_file(self, file_path: Path) -> List[SecurityFinding]:
         """Scan a file for secrets and sensitive information."""
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(file_path, encoding="utf-8", errors="ignore") as f:
                 content = f.read()
-            
+
             return self.scan_text(content, str(file_path))
-            
+
         except Exception as e:
             self.logger.error(f"Error scanning file {file_path}: {e}")
             return [SecurityFinding(
@@ -216,25 +216,25 @@ class SecretScanner:
                 message=f"Failed to scan file: {e}",
                 location=str(file_path)
             )]
-    
+
     def scan_directory(self, directory_path: Path, file_extensions: Optional[List[str]] = None) -> List[SecurityFinding]:
         """Scan a directory recursively for secrets."""
         if file_extensions is None:
-            file_extensions = ['.py', '.js', '.ts', '.json', '.yaml', '.yml', '.md', '.txt', '.env']
-        
+            file_extensions = [".py", ".js", ".ts", ".json", ".yaml", ".yml", ".md", ".txt", ".env"]
+
         findings = []
-        
-        for file_path in directory_path.rglob('*'):
+
+        for file_path in directory_path.rglob("*"):
             if file_path.is_file() and file_path.suffix.lower() in file_extensions:
                 file_findings = self.scan_file(file_path)
                 findings.extend(file_findings)
-        
+
         return findings
-    
+
     def scan_model_card_data(self, data: Dict[str, Any]) -> List[SecurityFinding]:
         """Scan model card data structure for secrets."""
         findings = []
-        
+
         # Convert data to JSON string for scanning
         try:
             json_content = json.dumps(data, indent=2)
@@ -246,16 +246,16 @@ class SecretScanner:
                 message=f"Failed to scan model card data: {e}",
                 location="model_card_data"
             ))
-        
+
         # Additional checks for model card specific concerns
         findings.extend(self._check_model_card_security(data))
-        
+
         return findings
-    
+
     def _check_model_card_security(self, data: Dict[str, Any]) -> List[SecurityFinding]:
         """Perform model card specific security checks."""
         findings = []
-        
+
         # Check for PII in model descriptions
         pii_patterns = [
             (r"\\b\\d{3}-\\d{2}-\\d{4}\\b", "Social Security Number"),
@@ -263,9 +263,9 @@ class SecretScanner:
             (r"\\b\\d{4}\\s?\\d{4}\\s?\\d{4}\\s?\\d{4}\\b", "Credit Card Number"),
             (r"\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b", "IP Address"),
         ]
-        
+
         text_content = json.dumps(data, indent=2)
-        
+
         for pattern, pii_type in pii_patterns:
             if re.search(pattern, text_content):
                 findings.append(SecurityFinding(
@@ -275,14 +275,14 @@ class SecretScanner:
                     location="model_card_content",
                     remediation=f"Remove or anonymize {pii_type} from model card"
                 ))
-        
+
         # Check for internal URLs or paths
         internal_patterns = [
             r"(?i)(localhost|127\\.0\\.0\\.1|192\\.168\\.|10\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.))",
             r"(?i)(file://|/home/|/users/|c:\\\\|d:\\\\)",
             r"(?i)\\.internal\\b",
         ]
-        
+
         for pattern in internal_patterns:
             if re.search(pattern, text_content):
                 findings.append(SecurityFinding(
@@ -292,28 +292,28 @@ class SecretScanner:
                     location="model_card_content",
                     remediation="Replace internal references with public equivalents"
                 ))
-        
+
         return findings
-    
+
     def _is_whitelisted(self, text: str) -> bool:
         """Check if detected text matches whitelist patterns."""
         for pattern in self.whitelist_patterns:
             if pattern.search(text):
                 return True
         return False
-    
+
     def _get_context(self, lines: List[str], line_index: int, context_lines: int = 2) -> str:
         """Get context around a finding."""
         start = max(0, line_index - context_lines)
         end = min(len(lines), line_index + context_lines + 1)
-        
+
         context_lines_with_numbers = []
         for i in range(start, end):
             marker = ">>> " if i == line_index else "    "
             context_lines_with_numbers.append(f"{marker}{i+1:3d}: {lines[i]}")
-        
+
         return "\\n".join(context_lines_with_numbers)
-    
+
     def _get_remediation(self, pattern_name: str) -> str:
         """Get remediation advice for a specific pattern."""
         remediations = {
@@ -326,9 +326,9 @@ class SecretScanner:
             "jwt_token": "Avoid logging or exposing JWT tokens in configuration",
             "encryption_key": "Use secure key management systems for encryption keys",
         }
-        
+
         return remediations.get(pattern_name, "Store sensitive information in environment variables or secret management systems")
-    
+
     def generate_report(self, findings: List[SecurityFinding]) -> Dict[str, Any]:
         """Generate a comprehensive security scan report."""
         if not findings:
@@ -339,12 +339,12 @@ class SecretScanner:
                 "severity_breakdown": {},
                 "findings": []
             }
-        
+
         # Count findings by severity
         severity_counts = {}
         for finding in findings:
             severity_counts[finding.severity] = severity_counts.get(finding.severity, 0) + 1
-        
+
         # Determine overall status
         if any(f.severity == "critical" for f in findings):
             status = "critical"
@@ -354,7 +354,7 @@ class SecretScanner:
             status = "medium_risk"
         else:
             status = "low_risk"
-        
+
         return {
             "status": status,
             "summary": f"Found {len(findings)} security issue(s)",
@@ -373,33 +373,33 @@ class SecretScanner:
             ],
             "recommendations": self._generate_recommendations(findings)
         }
-    
+
     def _generate_recommendations(self, findings: List[SecurityFinding]) -> List[str]:
         """Generate security recommendations based on findings."""
         recommendations = set()
-        
+
         has_secrets = any("secret" in f.type for f in findings)
         has_pii = any("pii" in f.type for f in findings)
         has_internal_refs = any("internal" in f.type for f in findings)
-        
+
         if has_secrets:
             recommendations.add("Implement a secret management system (e.g., HashiCorp Vault, AWS Secrets Manager)")
             recommendations.add("Use environment variables for sensitive configuration")
             recommendations.add("Implement secret scanning in CI/CD pipelines")
-        
+
         if has_pii:
             recommendations.add("Review data handling policies for PII protection")
             recommendations.add("Implement data anonymization techniques")
             recommendations.add("Ensure GDPR/CCPA compliance for personal data")
-        
+
         if has_internal_refs:
             recommendations.add("Replace internal references with public equivalents")
             recommendations.add("Review documentation for information disclosure")
-        
+
         if findings:
             recommendations.add("Regular security audits and scans")
             recommendations.add("Security training for development team")
-        
+
         return list(recommendations)
 
 
@@ -422,6 +422,6 @@ def is_content_safe(content: str) -> Tuple[bool, List[SecurityFinding]]:
     findings = scan_for_secrets(content)
     has_critical = any(f.severity == "critical" for f in findings)
     has_high = any(f.severity == "high" for f in findings)
-    
+
     is_safe = not (has_critical or has_high)
     return is_safe, findings

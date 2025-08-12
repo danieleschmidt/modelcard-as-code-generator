@@ -1,0 +1,169 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: modelcard-generator
+  namespace: modelcard-generator
+  labels:
+    app: modelcard-generator
+    version: v1.0.0
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: modelcard-generator
+  template:
+    metadata:
+      labels:
+        app: modelcard-generator
+        version: v1.0.0
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: modelcard-generator
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+      - name: modelcard-generator
+        image: modelcard-generator:v1.0.0
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        - containerPort: 8081
+          name: health
+          protocol: TCP
+        env:
+        - name: MODELCARD_LOGGING_LEVEL
+          value: "INFO"
+        - name: MODELCARD_CACHE_ENABLED
+          value: "true"
+        - name: MODELCARD_REDIS_URL
+          value: "redis://redis-service:6379"
+        - name: MODELCARD_REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: modelcard-secrets
+              key: redis-password
+        - name: WANDB_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: modelcard-secrets
+              key: wandb-api-key
+              optional: true
+        - name: MLFLOW_TRACKING_URI
+          valueFrom:
+            secretKeyRef:
+              name: modelcard-secrets
+              key: mlflow-tracking-uri
+              optional: true
+        volumeMounts:
+        - name: config-volume
+          mountPath: /app/config
+        - name: cache-volume
+          mountPath: /var/cache/modelcard
+        - name: output-volume
+          mountPath: /var/output/modelcards
+        - name: logs-volume
+          mountPath: /var/log/modelcard
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 1Gi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: health
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 3
+      volumes:
+      - name: config-volume
+        configMap:
+          name: modelcard-config
+      - name: cache-volume
+        persistentVolumeClaim:
+          claimName: modelcard-cache-pvc
+      - name: output-volume
+        persistentVolumeClaim:
+          claimName: modelcard-output-pvc
+      - name: logs-volume
+        persistentVolumeClaim:
+          claimName: modelcard-logs-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: modelcard-service
+  namespace: modelcard-generator
+  labels:
+    app: modelcard-generator
+spec:
+  selector:
+    app: modelcard-generator
+  ports:
+  - port: 8080
+    targetPort: http
+    protocol: TCP
+    name: http
+  - port: 8081
+    targetPort: health
+    protocol: TCP
+    name: health
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: modelcard-generator
+  namespace: modelcard-generator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: modelcard-generator
+  name: modelcard-generator-role
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: modelcard-generator-binding
+  namespace: modelcard-generator
+subjects:
+- kind: ServiceAccount
+  name: modelcard-generator
+  namespace: modelcard-generator
+roleRef:
+  kind: Role
+  name: modelcard-generator-role
+  apiGroup: rbac.authorization.k8s.io

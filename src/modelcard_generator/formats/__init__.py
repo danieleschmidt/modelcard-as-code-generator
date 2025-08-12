@@ -1,11 +1,11 @@
 """Format-specific model card implementations."""
 
-from .huggingface import HuggingFaceCard
-from .google import GoogleModelCard
 from .eu_cra import EUCRAModelCard
+from .google import GoogleModelCard
+from .huggingface import HuggingFaceCard
 
 __all__ = [
     "HuggingFaceCard",
-    "GoogleModelCard", 
+    "GoogleModelCard",
     "EUCRAModelCard",
 ]

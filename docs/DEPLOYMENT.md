@@ -1,9 +1,8 @@
-# Deployment Guide
-## Model Card as Code Generator
+# ModelCard Generator - Production Deployment Guide
 
-### Overview
+## Overview
 
-This guide covers various deployment options for the Model Card Generator, from simple local installation to enterprise-scale container orchestration.
+This comprehensive guide covers deployment of the enhanced ModelCard Generator with all production features including resilience patterns, intelligent caching, distributed processing, and monitoring. The system supports multiple deployment architectures from local development to enterprise Kubernetes clusters.
 
 ### Installation Methods
 

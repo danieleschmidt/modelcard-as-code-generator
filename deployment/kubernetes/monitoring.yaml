@@ -1,0 +1,158 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: modelcard-generator
+  namespace: modelcard-generator
+  labels:
+    app: modelcard-generator
+spec:
+  selector:
+    matchLabels:
+      app: modelcard-generator
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: modelcard-generator-alerts
+  namespace: modelcard-generator
+spec:
+  groups:
+  - name: modelcard-generator
+    rules:
+    - alert: ModelCardGeneratorDown
+      expr: up{job="modelcard-generator"} == 0
+      for: 1m
+      labels:
+        severity: critical
+      annotations:
+        summary: "ModelCard Generator is down"
+        description: "ModelCard Generator has been down for more than 1 minute."
+    
+    - alert: ModelCardGeneratorHighErrorRate
+      expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.1
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High error rate in ModelCard Generator"
+        description: "Error rate is {{ $value | humanizePercentage }} for 5 minutes."
+    
+    - alert: ModelCardGeneratorHighResponseTime
+      expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 2
+      for: 10m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High response time in ModelCard Generator"
+        description: "95th percentile response time is {{ $value }}s for 10 minutes."
+    
+    - alert: ModelCardGeneratorHighMemoryUsage
+      expr: container_memory_usage_bytes{pod=~"modelcard-generator.*"} / container_spec_memory_limit_bytes > 0.9
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High memory usage in ModelCard Generator"
+        description: "Memory usage is {{ $value | humanizePercentage }} for 5 minutes."
+    
+    - alert: ModelCardGeneratorCacheMissRate
+      expr: rate(cache_misses_total[5m]) / rate(cache_requests_total[5m]) > 0.8
+      for: 10m
+      labels:
+        severity: info
+      annotations:
+        summary: "High cache miss rate"
+        description: "Cache miss rate is {{ $value | humanizePercentage }} for 10 minutes."
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-modelcard
+  namespace: modelcard-generator
+  labels:
+    grafana_dashboard: "1"
+data:
+  dashboard.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "ModelCard Generator Dashboard",
+        "tags": ["modelcard", "ml", "monitoring"],
+        "timezone": "browser",
+        "panels": [
+          {
+            "id": 1,
+            "title": "Request Rate",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "rate(http_requests_total{job=\"modelcard-generator\"}[5m])",
+                "legendFormat": "{{method}} {{status}}"
+              }
+            ],
+            "yAxes": [{"label": "requests/sec"}],
+            "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+          },
+          {
+            "id": 2,
+            "title": "Response Time",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job=\"modelcard-generator\"}[5m]))",
+                "legendFormat": "95th percentile"
+              },
+              {
+                "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket{job=\"modelcard-generator\"}[5m]))",
+                "legendFormat": "50th percentile"
+              }
+            ],
+            "yAxes": [{"label": "seconds"}],
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+          },
+          {
+            "id": 3,
+            "title": "Error Rate",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "rate(http_requests_total{job=\"modelcard-generator\",status=~\"5..\"}[5m]) / rate(http_requests_total{job=\"modelcard-generator\"}[5m])",
+                "legendFormat": "Error Rate"
+              }
+            ],
+            "gridPos": {"h": 4, "w": 6, "x": 0, "y": 8}
+          },
+          {
+            "id": 4,
+            "title": "Cache Hit Rate",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "rate(cache_hits_total[5m]) / rate(cache_requests_total[5m])",
+                "legendFormat": "Cache Hit Rate"
+              }
+            ],
+            "gridPos": {"h": 4, "w": 6, "x": 6, "y": 8}
+          },
+          {
+            "id": 5,
+            "title": "Memory Usage",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "container_memory_usage_bytes{pod=~\"modelcard-generator.*\"} / 1024 / 1024",
+                "legendFormat": "{{pod}}"
+              }
+            ],
+            "yAxes": [{"label": "MB"}],
+            "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+          }
+        ],
+        "time": {"from": "now-1h", "to": "now"},
+        "refresh": "5s"
+      }
+    }

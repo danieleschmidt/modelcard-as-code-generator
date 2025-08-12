@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: modelcard-generator
+  labels:
+    app: modelcard-generator
+    version: v1.0.0
+    tier: production
+spec: {}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: modelcard-config
+  namespace: modelcard-generator
+data:
+  config.yaml: |
+    logging:
+      level: INFO
+      structured: true
+      file: /var/log/modelcard/app.log
+    security:
+      enable_scanning: true
+      max_file_size: 104857600  # 100MB
+      scan_content: true
+      allow_external_urls: false
+    validation:
+      min_completeness_score: 0.8
+      enforce_compliance: true
+      auto_fix_issues: false
+    cache:
+      enabled: true
+      cache_dir: /var/cache/modelcard
+      max_size_mb: 500
+      ttl_seconds: 3600
+    drift:
+      enabled: true
+      default_thresholds:
+        accuracy: 0.02
+        precision: 0.02  
+        recall: 0.02
+        f1: 0.02
+        loss: 0.05
+    output_dir: /var/output/modelcards
+    default_format: huggingface
+    auto_validate: true
+    auto_scan_security: true
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: modelcard-secrets
+  namespace: modelcard-generator
+type: Opaque
+data:
+  # Base64 encoded secrets - replace with actual values
+  redis-password: UmVkaXNQYXNzd29yZDEyMyE=  # RedisPassword123!
+  wandb-api-key: ""  # Optional: Weights & Biases API key
+  mlflow-tracking-uri: ""  # Optional: MLflow tracking URI
