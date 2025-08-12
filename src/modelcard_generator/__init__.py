@@ -10,22 +10,22 @@ __version__ = "1.0.0"
 __author__ = "Terragon Labs"
 __license__ = "Apache-2.0"
 
-from .core.generator import ModelCardGenerator
-from .core.models import ModelCard, CardConfig, CardFormat
-from .core.validator import Validator
 from .core.drift_detector import DriftDetector
-from .formats import HuggingFaceCard, GoogleModelCard, EUCRAModelCard
+from .core.generator import ModelCardGenerator
+from .core.models import CardConfig, CardFormat, ModelCard
+from .core.validator import Validator
+from .formats import EUCRAModelCard, GoogleModelCard, HuggingFaceCard
 from .templates import TemplateLibrary
 
 __all__ = [
     "ModelCardGenerator",
-    "ModelCard", 
+    "ModelCard",
     "CardConfig",
     "CardFormat",
     "Validator",
     "DriftDetector",
     "HuggingFaceCard",
-    "GoogleModelCard", 
+    "GoogleModelCard",
     "EUCRAModelCard",
     "TemplateLibrary",
 ]

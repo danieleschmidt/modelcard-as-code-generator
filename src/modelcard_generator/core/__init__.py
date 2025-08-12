@@ -1,14 +1,14 @@
 """Core model card generation functionality."""
 
-from .generator import ModelCardGenerator
-from .models import ModelCard, CardConfig, ValidationResult
-from .validator import Validator
 from .drift_detector import DriftDetector, DriftReport
+from .generator import ModelCardGenerator
+from .models import CardConfig, ModelCard, ValidationResult
+from .validator import Validator
 
 __all__ = [
     "ModelCardGenerator",
     "ModelCard",
-    "CardConfig", 
+    "CardConfig",
     "ValidationResult",
     "Validator",
     "DriftDetector",

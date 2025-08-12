@@ -1,9 +1,55 @@
-# Architecture Document
-## Model Card as Code Generator
+# ModelCard Generator - System Architecture
 
-### 1. System Overview
+## Overview
 
-The Model Card as Code Generator is a Python-based system that automates the creation, validation, and maintenance of machine learning model documentation. The system follows a modular architecture with clear separation of concerns between data ingestion, card generation, validation, and output formatting.
+The ModelCard Generator is a production-ready MLOps tool designed for automated generation of ML model documentation that satisfies regulatory compliance requirements (EU CRA, GDPR, EU AI Act). The system implements a layered architecture with advanced resilience patterns, intelligent caching, and distributed processing capabilities.
+
+## High-Level Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Client Layer                             │
+├─────────────────────────────────────────────────────────────────┤
+│  CLI Interface  │  Web API  │  Python SDK  │  GitHub Actions   │
+└─────────────────────────────────────────────────────────────────┘
+                                   │
+┌─────────────────────────────────────────────────────────────────┐
+│                      Application Layer                         │
+├─────────────────────────────────────────────────────────────────┤
+│           Enhanced ModelCard Generator                          │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐ │
+│  │   Resilience    │  │   Rate Limiter  │  │   Security      │ │
+│  │   Patterns      │  │   & Throttling  │  │   Scanner       │ │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+                                   │
+┌─────────────────────────────────────────────────────────────────┐
+│                       Service Layer                            │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐ │
+│  │  Distributed    │  │   Intelligent   │  │   Enhanced      │ │
+│  │  Processing     │  │     Cache       │  │   Monitoring    │ │
+│  │     Queue       │  │    System       │  │    & Metrics    │ │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+                                   │
+┌─────────────────────────────────────────────────────────────────┐
+│                       Core Layer                               │
+├─────────────────────────────────────────────────────────────────┤
+│  Generator │ Validator │ Templates │ Formats │ Drift Detection │
+└─────────────────────────────────────────────────────────────────┘
+                                   │
+┌─────────────────────────────────────────────────────────────────┐
+│                    Infrastructure Layer                        │
+├─────────────────────────────────────────────────────────────────┤
+│   Redis    │  File System  │  External APIs  │   Monitoring   │
+│  (Queue)   │   (Storage)    │   (Integrations) │   (Metrics)   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## System Overview
+
+The ModelCard Generator has evolved through autonomous SDLC implementation, incorporating production-ready resilience patterns, intelligent caching, distributed processing, and comprehensive monitoring. The system maintains backward compatibility while adding enterprise-grade features for scalability and reliability.
 
 ```mermaid
 graph TB

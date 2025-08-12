@@ -9,18 +9,18 @@ This module provides comprehensive security features including:
 - Compliance validation
 """
 
-from .validator import InputValidator, validate_input
-from .scanner import SecretScanner, scan_for_secrets
-from .auth import AuthManager, require_auth
 from .audit import AuditLogger, log_security_event
+from .auth import AuthManager, require_auth
 from .compliance import ComplianceChecker, check_compliance
+from .scanner import SecretScanner, scan_for_secrets
+from .validator import InputValidator, validate_input
 
 __all__ = [
     "InputValidator",
-    "validate_input", 
+    "validate_input",
     "SecretScanner",
     "scan_for_secrets",
-    "AuthManager", 
+    "AuthManager",
     "require_auth",
     "AuditLogger",
     "log_security_event",

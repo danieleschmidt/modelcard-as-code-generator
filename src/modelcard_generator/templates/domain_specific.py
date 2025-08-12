@@ -1,14 +1,12 @@
 """Domain-specific model card templates for specialized use cases."""
 
 import logging
-from typing import Dict, List, Optional, Any, Union
-from datetime import datetime
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Dict, List, Optional
 
-from ..core.models import ModelCard, CardConfig, CardFormat
-from ..core.exceptions import ModelCardError, ValidationError
+from ..core.models import CardConfig, CardFormat, ModelCard
 from .library import Template
-
 
 logger = logging.getLogger(__name__)
 
@@ -50,20 +48,20 @@ class FairnessMetrics:
 
 class MedicalAITemplate(Template):
     """Template for medical AI model cards with clinical validation and regulatory compliance."""
-    
+
     def __init__(self):
         super().__init__(
             name="medical_ai",
             required_sections=[
                 "intended_use",
-                "clinical_validation", 
+                "clinical_validation",
                 "regulatory_status",
                 "contraindications",
                 "risk_assessment",
                 "data_privacy"
             ]
         )
-    
+
     def create(self,
                model_name: str,
                intended_use: str,
@@ -93,16 +91,16 @@ class MedicalAITemplate(Template):
             include_ethical_considerations=True,
             regulatory_standard="fda_medical_device"
         )
-        
+
         card = ModelCard(config)
-        
+
         # Model details
         card.model_details.name = model_name
         card.model_details.description = f"Medical AI model for {intended_use}"
         card.model_details.version = kwargs.get("version", "1.0.0")
         card.model_details.license = kwargs.get("license", "Proprietary")
         card.model_details.tags = ["medical-ai", "healthcare", "clinical-decision-support"]
-        
+
         # Add medical-specific sections
         self._add_intended_use_section(card, intended_use, intended_population)
         self._add_clinical_validation_section(card, clinical_validation)
@@ -110,17 +108,17 @@ class MedicalAITemplate(Template):
         self._add_contraindications_section(card, contraindications)
         self._add_risk_assessment_section(card, clinical_validation)
         self._add_data_privacy_section(card, data_sources)
-        
+
         # Training details specific to medical AI
         card.training_details.training_data = data_sources
         card.training_details.preprocessing = kwargs.get(
-            "preprocessing", 
+            "preprocessing",
             "Clinical data preprocessing including deidentification, normalization, and quality checks"
         )
-        
+
         # Add clinical metrics
         self._add_clinical_metrics(card, clinical_validation)
-        
+
         # Metadata
         card.metadata.update({
             "domain": "medical",
@@ -129,9 +127,9 @@ class MedicalAITemplate(Template):
             "clinical_validation_completed": True,
             "hipaa_compliant": True
         })
-        
+
         return card
-    
+
     def _add_intended_use_section(self, card: ModelCard, intended_use: str, population: str) -> None:
         """Add intended use section with clinical details."""
         section = f"""## Intended Use
@@ -152,7 +150,7 @@ This model is intended for use by qualified healthcare professionals in clinical
 - Should be used in conjunction with other clinical information
 """
         card.add_section("intended_use", section.strip())
-    
+
     def _add_clinical_validation_section(self, card: ModelCard, validation: ClinicalValidation) -> None:
         """Add clinical validation section."""
         section = f"""## Clinical Validation
@@ -164,27 +162,27 @@ This model is intended for use by qualified healthcare professionals in clinical
 
         if validation.ppv is not None:
             section += f"\n- **Positive Predictive Value**: {validation.ppv:.3f} ({validation.ppv*100:.1f}%)"
-        
+
         if validation.npv is not None:
             section += f"\n- **Negative Predictive Value**: {validation.npv:.3f} ({validation.npv*100:.1f}%)"
-        
+
         if validation.cohort_size:
             section += f"\n\n### Study Cohort\n- **Size**: {validation.cohort_size:,} patients"
-        
+
         if validation.validation_sites:
             section += f"\n- **Sites**: {', '.join(validation.validation_sites)}"
-        
+
         if validation.follow_up_period:
             section += f"\n- **Follow-up Period**: {validation.follow_up_period}"
-        
+
         section += """
 
 ### Statistical Analysis
 All performance metrics were calculated using appropriate statistical methods with confidence intervals. Cross-validation was performed to assess generalizability across different patient populations and clinical sites.
 """
-        
+
         card.add_section("clinical_validation", section.strip())
-    
+
     def _add_regulatory_section(self, card: ModelCard, regulatory: RegulatoryInfo) -> None:
         """Add regulatory status section."""
         section = f"""## Regulatory Status
@@ -194,23 +192,23 @@ All performance metrics were calculated using appropriate statistical methods wi
 
         if regulatory.pathway:
             section += f"\n\n### Regulatory Pathway\n{regulatory.pathway}"
-        
+
         if regulatory.submission_date:
             section += f"\n\n### Key Dates\n- **Submission**: {regulatory.submission_date.strftime('%B %d, %Y')}"
-        
+
         if regulatory.approval_date:
             section += f"\n- **Approval**: {regulatory.approval_date.strftime('%B %d, %Y')}"
-        
+
         if regulatory.indication:
             section += f"\n\n### Approved Indication\n{regulatory.indication}"
-        
+
         section += """
 
 ### Compliance
 This model card complies with regulatory requirements for medical device software documentation and transparency."""
-        
+
         card.add_section("regulatory_status", section.strip())
-    
+
     def _add_contraindications_section(self, card: ModelCard, contraindications: List[str]) -> None:
         """Add contraindications and warnings section."""
         section = """## Contraindications and Warnings
@@ -220,7 +218,7 @@ The following are contraindications for use of this model:
 """
         for contraindication in contraindications:
             section += f"- {contraindication}\n"
-        
+
         section += """
 ### Warnings and Precautions
 - Model performance has not been validated in pediatric populations unless specifically indicated
@@ -231,15 +229,15 @@ The following are contraindications for use of this model:
 ### Adverse Event Reporting
 Any adverse events or performance issues should be reported to the model manufacturer and relevant regulatory authorities.
 """
-        
+
         card.add_section("contraindications", section.strip())
-    
+
     def _add_risk_assessment_section(self, card: ModelCard, validation: ClinicalValidation) -> None:
         """Add clinical risk assessment section."""
         # Calculate clinical risk metrics
         false_positive_rate = 1 - validation.specificity
         false_negative_rate = 1 - validation.sensitivity
-        
+
         section = f"""## Risk Assessment
 
 ### Clinical Risk Analysis
@@ -257,19 +255,19 @@ Any adverse events or performance issues should be reported to the model manufac
 ### Risk-Benefit Analysis
 The clinical benefits of using this model have been demonstrated to outweigh the risks when used appropriately in the intended clinical setting with proper safeguards.
 """
-        
+
         card.add_section("risk_assessment", section.strip())
-    
+
     def _add_data_privacy_section(self, card: ModelCard, data_sources: List[str]) -> None:
         """Add data privacy and security section."""
-        section = f"""## Data Privacy and Security
+        section = """## Data Privacy and Security
 
 ### Data Sources
 Training data was obtained from the following sources:
 """
         for source in data_sources:
             section += f"- {source}\n"
-        
+
         section += """
 ### Privacy Protection Measures
 - All training data was deidentified according to HIPAA Safe Harbor standards
@@ -285,32 +283,32 @@ Training data was obtained from the following sources:
 ### Data Retention
 Patient data is not retained by the model after processing. All temporary data is securely deleted according to institutional policies.
 """
-        
+
         card.add_section("data_privacy", section.strip())
-    
+
     def _add_clinical_metrics(self, card: ModelCard, validation: ClinicalValidation) -> None:
         """Add clinical performance metrics to the model card."""
         card.add_metric("sensitivity", validation.sensitivity)
         card.add_metric("specificity", validation.specificity)
         card.add_metric("auc", validation.auc)
-        
+
         if validation.ppv is not None:
             card.add_metric("positive_predictive_value", validation.ppv)
-        
+
         if validation.npv is not None:
             card.add_metric("negative_predictive_value", validation.npv)
-        
+
         # Calculate additional clinical metrics
         false_positive_rate = 1 - validation.specificity
         false_negative_rate = 1 - validation.sensitivity
-        
+
         card.add_metric("false_positive_rate", false_positive_rate)
         card.add_metric("false_negative_rate", false_negative_rate)
 
 
 class FinancialAITemplate(Template):
     """Template for financial AI model cards with fairness and regulatory compliance."""
-    
+
     def __init__(self):
         super().__init__(
             name="financial_ai",
@@ -323,7 +321,7 @@ class FinancialAITemplate(Template):
                 "governance"
             ]
         )
-    
+
     def create(self,
                model_name: str,
                business_purpose: str,
@@ -351,16 +349,16 @@ class FinancialAITemplate(Template):
             include_ethical_considerations=True,
             regulatory_standard="financial_services"
         )
-        
+
         card = ModelCard(config)
-        
+
         # Model details
         card.model_details.name = model_name
         card.model_details.description = f"Financial AI model for {business_purpose}"
         card.model_details.version = kwargs.get("version", "1.0.0")
         card.model_details.license = kwargs.get("license", "Proprietary")
         card.model_details.tags = ["financial-ai", "risk-assessment", "compliance"]
-        
+
         # Add financial-specific sections
         self._add_business_purpose_section(card, business_purpose)
         self._add_fairness_section(card, fairness_metrics, protected_attributes)
@@ -368,10 +366,10 @@ class FinancialAITemplate(Template):
         self._add_explainability_section(card, explainability_method)
         self._add_monitoring_section(card, protected_attributes)
         self._add_governance_section(card)
-        
+
         # Add fairness metrics
         self._add_fairness_metrics(card, fairness_metrics)
-        
+
         # Metadata
         card.metadata.update({
             "domain": "financial_services",
@@ -380,9 +378,9 @@ class FinancialAITemplate(Template):
             "explainable": True,
             "protected_attributes": protected_attributes
         })
-        
+
         return card
-    
+
     def _add_business_purpose_section(self, card: ModelCard, purpose: str) -> None:
         """Add business purpose section."""
         section = f"""## Business Purpose and Use Case
@@ -404,9 +402,9 @@ This model provides automated decision support to improve efficiency, consistenc
 - Not validated for use outside specified business context
 - Should not be used as sole basis for adverse actions affecting consumers
 """
-        
+
         card.add_section("business_purpose", section.strip())
-    
+
     def _add_fairness_section(self, card: ModelCard, metrics: FairnessMetrics, attributes: List[str]) -> None:
         """Add fairness assessment section."""
         section = f"""## Fairness Assessment
@@ -417,21 +415,21 @@ This model provides automated decision support to improve efficiency, consistenc
 
         if metrics.equalized_odds is not None:
             section += f"\n- **Equalized Odds**: {metrics.equalized_odds:.4f}"
-        
+
         if metrics.calibration is not None:
             section += f"\n- **Calibration**: {metrics.calibration:.4f}"
-        
+
         if metrics.individual_fairness is not None:
             section += f"\n- **Individual Fairness**: {metrics.individual_fairness:.4f}"
-        
-        section += f"""
+
+        section += """
 
 ### Protected Attributes Monitored
 The following protected attributes are monitored for fairness:
 """
         for attr in attributes:
             section += f"- {attr}\n"
-        
+
         section += """
 ### Fairness Methodology
 Fairness assessments were conducted using industry-standard metrics and methodologies. Regular monitoring ensures ongoing compliance with fairness standards.
@@ -441,9 +439,9 @@ Fairness assessments were conducted using industry-standard metrics and methodol
 - In-processing: Fairness constraints incorporated during model training
 - Post-processing: Output calibration to ensure equitable outcomes across groups
 """
-        
+
         card.add_section("fairness_assessment", section.strip())
-    
+
     def _add_regulatory_section(self, card: ModelCard, compliance: List[str]) -> None:
         """Add regulatory compliance section."""
         section = """## Regulatory Compliance
@@ -453,7 +451,7 @@ This model has been designed and validated to comply with:
 """
         for regulation in compliance:
             section += f"- {regulation}\n"
-        
+
         section += """
 ### Compliance Measures
 - **Fair Credit Reporting Act (FCRA)**: Model outputs meet FCRA accuracy and fairness requirements
@@ -467,9 +465,9 @@ This model has been designed and validated to comply with:
 - Regular model validation and testing conducted
 - Compliance monitoring and reporting processes established
 """
-        
+
         card.add_section("regulatory_compliance", section.strip())
-    
+
     def _add_explainability_section(self, card: ModelCard, method: str) -> None:
         """Add explainability section."""
         section = f"""## Model Explainability
@@ -498,12 +496,12 @@ Model explanations are regularly reviewed to ensure:
 - Absence of prohibited factors
 - Reasonable and defensible decision logic
 """
-        
+
         card.add_section("explainability", section.strip())
-    
+
     def _add_monitoring_section(self, card: ModelCard, attributes: List[str]) -> None:
         """Add ongoing monitoring section."""
-        section = f"""## Ongoing Monitoring
+        section = """## Ongoing Monitoring
 
 ### Performance Monitoring
 - **Model Performance**: Regular assessment of predictive accuracy
@@ -528,12 +526,12 @@ Automated alerts trigger when:
 ### Protected Attributes Monitoring
 Continuous monitoring of outcomes across protected attributes:
 """
-        
+
         for attr in attributes:
             section += f"- {attr}: Automated fairness metric calculation\n"
-        
+
         card.add_section("monitoring", section.strip())
-    
+
     def _add_governance_section(self, card: ModelCard) -> None:
         """Add governance section."""
         section = """## Model Governance
@@ -565,40 +563,40 @@ All model changes follow established change management procedures:
 - Testing and validation requirements  
 - Documentation and audit trail maintenance
 """
-        
+
         card.add_section("governance", section.strip())
-    
+
     def _add_fairness_metrics(self, card: ModelCard, metrics: FairnessMetrics) -> None:
         """Add fairness metrics to the model card."""
         card.add_metric("demographic_parity", metrics.demographic_parity)
         card.add_metric("equal_opportunity", metrics.equal_opportunity)
-        
+
         if metrics.equalized_odds is not None:
             card.add_metric("equalized_odds", metrics.equalized_odds)
-        
+
         if metrics.calibration is not None:
             card.add_metric("calibration", metrics.calibration)
-        
+
         if metrics.individual_fairness is not None:
             card.add_metric("individual_fairness", metrics.individual_fairness)
 
 
 class BiometricAITemplate(Template):
     """Template for biometric AI model cards with privacy and security focus."""
-    
+
     def __init__(self):
         super().__init__(
             name="biometric_ai",
             required_sections=[
                 "privacy_protection",
-                "consent_mechanism", 
+                "consent_mechanism",
                 "data_retention",
                 "security_measures",
                 "algorithmic_fairness",
                 "liveness_detection"
             ]
         )
-    
+
     def create(self,
                model_name: str,
                biometric_type: str,
@@ -624,16 +622,16 @@ class BiometricAITemplate(Template):
             include_ethical_considerations=True,
             regulatory_standard="biometric_privacy"
         )
-        
+
         card = ModelCard(config)
-        
+
         # Model details
         card.model_details.name = model_name
         card.model_details.description = f"Biometric AI model for {biometric_type} recognition and verification"
         card.model_details.version = kwargs.get("version", "1.0.0")
         card.model_details.license = kwargs.get("license", "Proprietary")
         card.model_details.tags = ["biometric-ai", "privacy-preserving", "identity-verification"]
-        
+
         # Add biometric-specific sections
         self._add_privacy_section(card, privacy_measures)
         self._add_consent_section(card)
@@ -641,7 +639,7 @@ class BiometricAITemplate(Template):
         self._add_security_section(card)
         self._add_fairness_section(card, accuracy_by_demographics)
         self._add_liveness_section(card, biometric_type)
-        
+
         # Metadata
         card.metadata.update({
             "domain": "biometric_identification",
@@ -650,9 +648,9 @@ class BiometricAITemplate(Template):
             "liveness_detection": True,
             "demographic_fairness_validated": True
         })
-        
+
         return card
-    
+
     def _add_privacy_section(self, card: ModelCard, measures: List[str]) -> None:
         """Add privacy protection section."""
         section = """## Privacy Protection
@@ -664,7 +662,7 @@ This biometric AI model implements privacy-by-design principles:
 """
         for measure in measures:
             section += f"- {measure}\n"
-        
+
         section += """
 #### Technical Safeguards
 - **Template Protection**: Biometric templates are irreversibly encrypted
@@ -677,9 +675,9 @@ This biometric AI model implements privacy-by-design principles:
 - CCPA compliance for biometric identifier protection
 - BIPA (Biometric Information Privacy Act) compliance where applicable
 """
-        
+
         card.add_section("privacy_protection", section.strip())
-    
+
     def _add_consent_section(self, card: ModelCard) -> None:
         """Add consent mechanism section."""
         section = """## Consent Mechanism
@@ -702,9 +700,9 @@ This biometric AI model implements privacy-by-design principles:
 - Multi-language consent options
 - Cultural sensitivity in consent processes
 """
-        
+
         card.add_section("consent_mechanism", section.strip())
-    
+
     def _add_retention_section(self, card: ModelCard, policy: str) -> None:
         """Add data retention section."""
         section = f"""## Data Retention Policy
@@ -729,9 +727,9 @@ This biometric AI model implements privacy-by-design principles:
 - Documentation of all deletion activities
 - Compliance reporting to relevant authorities
 """
-        
+
         card.add_section("data_retention", section.strip())
-    
+
     def _add_security_section(self, card: ModelCard) -> None:
         """Add security measures section."""
         section = """## Security Measures
@@ -760,9 +758,9 @@ This biometric AI model implements privacy-by-design principles:
 - **Notification Processes**: Clear processes for notifying affected users and authorities
 - **Recovery Planning**: Comprehensive disaster recovery and business continuity plans
 """
-        
+
         card.add_section("security_measures", section.strip())
-    
+
     def _add_fairness_section(self, card: ModelCard, accuracy_by_demographics: Dict[str, float]) -> None:
         """Add algorithmic fairness section."""
         section = """## Algorithmic Fairness
@@ -773,7 +771,7 @@ Performance metrics across different demographic groups:
 """
         for group, accuracy in accuracy_by_demographics.items():
             section += f"- **{group}**: {accuracy:.3f} ({accuracy*100:.1f}% accuracy)\n"
-        
+
         section += """
 ### Bias Mitigation Strategies
 - **Diverse Training Data**: Training datasets balanced across demographic groups
@@ -792,9 +790,9 @@ Performance metrics across different demographic groups:
 - Alternative authentication methods for users unable to provide biometric samples
 - Inclusive design principles applied throughout development
 """
-        
+
         card.add_section("algorithmic_fairness", section.strip())
-    
+
     def _add_liveness_section(self, card: ModelCard, biometric_type: str) -> None:
         """Add liveness detection section."""
         section = f"""## Liveness Detection
@@ -824,5 +822,5 @@ Advanced liveness detection specifically designed for {biometric_type}:
 - Machine learning-based adaptation to evolving threats
 - Security research collaboration and threat intelligence integration
 """
-        
+
         card.add_section("liveness_detection", section.strip())
