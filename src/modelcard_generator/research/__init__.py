@@ -2,14 +2,29 @@
 
 from .ai_content_generator import AIContentGenerator
 from .algorithm_optimizer import AlgorithmOptimizer
-from .research_analyzer import ResearchAnalyzer
 from .insight_engine import InsightEngine
-from .novelty_detector import NoveltyDetector
+
+# Conditionally import modules that require optional dependencies
+try:
+    from .research_analyzer import ResearchAnalyzer
+    RESEARCH_ANALYZER_AVAILABLE = True
+except ImportError:
+    RESEARCH_ANALYZER_AVAILABLE = False
+
+try:
+    from .novelty_detector import NoveltyDetector
+    NOVELTY_DETECTOR_AVAILABLE = True
+except ImportError:
+    NOVELTY_DETECTOR_AVAILABLE = False
 
 __all__ = [
     "AIContentGenerator",
     "AlgorithmOptimizer", 
-    "ResearchAnalyzer",
-    "InsightEngine",
-    "NoveltyDetector"
+    "InsightEngine"
 ]
+
+if RESEARCH_ANALYZER_AVAILABLE:
+    __all__.append("ResearchAnalyzer")
+
+if NOVELTY_DETECTOR_AVAILABLE:
+    __all__.append("NoveltyDetector")

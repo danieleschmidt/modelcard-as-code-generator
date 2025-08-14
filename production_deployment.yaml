@@ -1,0 +1,277 @@
+# Production Kubernetes Deployment for ModelCard Generator
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: modelcard-generator
+  labels:
+    name: modelcard-generator
+    environment: production
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: modelcard-generator
+  namespace: modelcard-generator
+  labels:
+    app: modelcard-generator
+    version: v1.0.0
+    tier: production
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: modelcard-generator
+  template:
+    metadata:
+      labels:
+        app: modelcard-generator
+        version: v1.0.0
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: modelcard-generator
+        image: terragonlabs/modelcard-generator:v1.0.0
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 8081
+          name: metrics
+        env:
+        - name: MCG_LOG_LEVEL
+          value: "INFO"
+        - name: MCG_CACHE_TTL
+          value: "300"
+        - name: MCG_SECURITY_SCAN
+          value: "true"
+        - name: MCG_BATCH_SIZE
+          value: "100"
+        - name: MCG_MAX_WORKERS
+          value: "4"
+        - name: MCG_ENVIRONMENT
+          value: "production"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        volumeMounts:
+        - name: config
+          mountPath: /app/config
+          readOnly: true
+        - name: cache
+          mountPath: /app/cache
+      volumes:
+      - name: config
+        configMap:
+          name: modelcard-generator-config
+      - name: cache
+        emptyDir:
+          sizeLimit: 1Gi
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 2000
+      nodeSelector:
+        environment: production
+      tolerations:
+      - key: "dedicated"
+        operator: "Equal"
+        value: "production"
+        effect: "NoSchedule"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: modelcard-generator-service
+  namespace: modelcard-generator
+  labels:
+    app: modelcard-generator
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  - port: 8081
+    targetPort: 8081
+    protocol: TCP
+    name: metrics
+  selector:
+    app: modelcard-generator
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: modelcard-generator-config
+  namespace: modelcard-generator
+data:
+  config.yaml: |
+    logging:
+      level: INFO
+      structured: true
+      file: /app/logs/modelcard-generator.log
+    
+    cache:
+      enabled: true
+      ttl_seconds: 300
+      max_size: 1000
+    
+    security:
+      scan_content: true
+      max_file_size: 10485760
+      scan_secrets: true
+    
+    performance:
+      batch_size: 100
+      max_workers: 4
+      timeout_seconds: 30
+    
+    monitoring:
+      enabled: true
+      metrics_port: 8081
+      health_check_interval: 10
+    
+    compliance:
+      standards:
+        - gdpr
+        - eu_ai_act
+        - eu_cra
+      enforce_validation: true
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: modelcard-generator-sa
+  namespace: modelcard-generator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: modelcard-generator
+  name: modelcard-generator-role
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: modelcard-generator-rolebinding
+  namespace: modelcard-generator
+subjects:
+- kind: ServiceAccount
+  name: modelcard-generator-sa
+  namespace: modelcard-generator
+roleRef:
+  kind: Role
+  name: modelcard-generator-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: modelcard-generator-hpa
+  namespace: modelcard-generator
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: modelcard-generator
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 15
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: modelcard-generator-pdb
+  namespace: modelcard-generator
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: modelcard-generator
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: modelcard-generator-netpol
+  namespace: modelcard-generator
+spec:
+  podSelector:
+    matchLabels:
+      app: modelcard-generator
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 8081
+  egress:
+  - {}  # Allow all egress for external API calls
