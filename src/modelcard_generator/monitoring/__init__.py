@@ -10,15 +10,21 @@ This module provides comprehensive monitoring capabilities including:
 """
 
 from .health import HealthChecker
-from .logger import get_logger, setup_logging
-from .metrics import MetricsCollector, create_metrics_app
-from .telemetry import TelemetryManager
+from .metrics import MetricsCollector
+
+# Import from core logging if available
+try:
+    from ..core.logging_config import get_logger, setup_logging
+except ImportError:
+    import logging
+    def get_logger(name):
+        return logging.getLogger(name)
+    def setup_logging(level="INFO"):
+        logging.basicConfig(level=level)
 
 __all__ = [
-    "HealthChecker",
+    "HealthChecker", 
     "MetricsCollector",
-    "create_metrics_app",
-    "TelemetryManager",
-    "setup_logging",
     "get_logger",
+    "setup_logging",
 ]

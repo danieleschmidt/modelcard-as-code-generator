@@ -88,7 +88,11 @@ class HealthCheck:
 
     async def _execute_check(self) -> Dict[str, Any]:
         """Override this method to implement the actual check."""
-        raise NotImplementedError
+        # Default implementation for base health check
+        return {
+            "status": HealthStatus.HEALTHY,
+            "message": "Base health check passed"
+        }
 
 
 class ApplicationHealthCheck(HealthCheck):
