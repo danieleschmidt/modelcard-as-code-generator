@@ -1,0 +1,53 @@
+[mutmut]
+# Mutation testing configuration for Model Card Generator
+# See https://github.com/boxed/mutmut for more information
+
+# Source directories to mutate
+paths_to_mutate = src/
+
+# Test runner command
+runner = python -m pytest tests/ -x --tb=no --disable-warnings
+
+# Test timeout
+timeout = 300
+
+# Pre and post mutation hooks
+# pre_mutation = echo "Running mutation {}"
+# post_mutation = echo "Completed mutation {}"
+
+# Mutations to perform
+# dict_synonyms = {}
+
+# Backup files
+backup = True
+
+# Show diff for surviving mutants
+show_diff = True
+
+# Cache directory
+cache_dir = .mutmut-cache
+
+# Skip mutants that would result in syntax errors
+syntax_error_handling = skip
+
+# Skip mutants in these functions/classes
+skip_lines_matching = [
+    "# pragma: no mutate",
+    "pass",
+    "raise NotImplementedError",
+    "logger\.",
+    "print\(",
+    "__repr__",
+    "__str__",
+    "assert ",
+]
+
+# Exclude files/directories
+exclude_files = [
+    "tests/",
+    "**/migrations/",
+    "**/test_*.py",
+    "**/*_test.py",
+    "**/conftest.py",
+    "setup.py",
+]
