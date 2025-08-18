@@ -1,0 +1,119 @@
+# Performance testing configuration for Model Card Generator
+
+# Benchmark categories
+categories:
+  generation:
+    - name: "basic_card_generation"
+      description: "Basic model card generation from evaluation results"
+      target_function: "modelcard_generator.generate"
+      parameters:
+        eval_results: "fixtures/sample_eval_results.json"
+        format: "huggingface"
+      thresholds:
+        max_time_ms: 1000
+        max_memory_mb: 50
+    
+    - name: "large_card_generation"
+      description: "Generate model card with extensive data"
+      target_function: "modelcard_generator.generate"
+      parameters:
+        eval_results: "fixtures/large_eval_results.json"
+        training_data: "fixtures/large_training_data.json"
+        format: "google"
+      thresholds:
+        max_time_ms: 5000
+        max_memory_mb: 200
+    
+    - name: "batch_card_generation"
+      description: "Generate multiple model cards in batch"
+      target_function: "modelcard_generator.batch_generate"
+      parameters:
+        batch_size: 10
+        format: "huggingface"
+      thresholds:
+        max_time_ms: 8000
+        max_memory_mb: 100
+
+  validation:
+    - name: "schema_validation"
+      description: "Validate model card against schema"
+      target_function: "modelcard_generator.validate_schema"
+      parameters:
+        card_path: "fixtures/sample_card.md"
+        schema: "huggingface"
+      thresholds:
+        max_time_ms: 100
+        max_memory_mb: 20
+    
+    - name: "content_validation"
+      description: "Validate model card content quality"
+      target_function: "modelcard_generator.validate_content"
+      parameters:
+        card_path: "fixtures/sample_card.md"
+      thresholds:
+        max_time_ms: 500
+        max_memory_mb: 30
+
+  parsing:
+    - name: "json_parsing"
+      description: "Parse large JSON evaluation results"
+      target_function: "modelcard_generator.parsers.parse_json"
+      parameters:
+        file_path: "fixtures/large_eval_results.json"
+      thresholds:
+        max_time_ms: 200
+        max_memory_mb: 30
+    
+    - name: "template_rendering"
+      description: "Render Jinja2 templates"
+      target_function: "modelcard_generator.templates.render"
+      parameters:
+        template: "huggingface.j2"
+        data: "fixtures/template_data.json"
+      thresholds:
+        max_time_ms: 300
+        max_memory_mb: 25
+
+# Load testing scenarios
+load_tests:
+  concurrent_generation:
+    description: "Multiple simultaneous card generations"
+    concurrent_users: 10
+    requests_per_user: 5
+    duration_seconds: 60
+    thresholds:
+      avg_response_time_ms: 2000
+      max_response_time_ms: 5000
+      error_rate_percent: 1.0
+      min_throughput_rps: 5
+  
+  sustained_load:
+    description: "Sustained load over extended period"
+    concurrent_users: 5
+    requests_per_user: 100
+    duration_seconds: 300
+    thresholds:
+      avg_response_time_ms: 1500
+      p95_response_time_ms: 3000
+      memory_growth_mb: 100
+      error_rate_percent: 0.5
+
+# Memory profiling
+memory_profiling:
+  enabled: true
+  track_allocations: true
+  report_top_n: 20
+  threshold_mb: 10
+
+# Regression testing
+regression:
+  baseline_branch: "main"
+  comparison_metrics:
+    - execution_time
+    - memory_usage
+    - throughput
+  tolerance_percent: 10
+  
+  alerts:
+    performance_degradation: 15  # Alert if performance degrades by more than 15%
+    memory_increase: 20          # Alert if memory usage increases by more than 20%
