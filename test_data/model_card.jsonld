@@ -1,0 +1,48 @@
+{
+  "@context": "https://schema.org/",
+  "@type": "SoftwareApplication",
+  "name": "sentiment-classifier-v2",
+  "version": "2.1.0",
+  "description": "Advanced sentiment classification model for product reviews.",
+  "author": [
+    "Terry AI",
+    "Terragon Labs"
+  ],
+  "license": "apache-2.0",
+  "applicationCategory": "MachineLearningModel",
+  "operatingSystem": "Any",
+  "dateCreated": "2025-08-21T16:54:35.357083",
+  "dateModified": "2025-08-21T16:54:35.358193",
+  "metrics": [
+    {
+      "@type": "PropertyValue",
+      "name": "accuracy",
+      "value": 0.924
+    },
+    {
+      "@type": "PropertyValue",
+      "name": "precision",
+      "value": 0.918
+    },
+    {
+      "@type": "PropertyValue",
+      "name": "recall",
+      "value": 0.931
+    },
+    {
+      "@type": "PropertyValue",
+      "name": "f1_score",
+      "value": 0.924
+    },
+    {
+      "@type": "PropertyValue",
+      "name": "roc_auc",
+      "value": 0.965
+    },
+    {
+      "@type": "PropertyValue",
+      "name": "inference_time_ms",
+      "value": 23.5
+    }
+  ]
+}

@@ -1,554 +1,514 @@
-# ModelCard Generator - API Reference
+# Model Card Generator API Reference
 
-## Python SDK
+## Table of Contents
 
-### Core Classes
+- [Core Classes](#core-classes)
+- [Configuration](#configuration)
+- [Generation Methods](#generation-methods)
+- [Validation](#validation)
+- [Formats](#formats)
+- [CLI Interface](#cli-interface)
+- [Internationalization](#internationalization)
 
-#### ModelCardGenerator
+## Core Classes
 
-The main entry point for generating model cards programmatically.
+### ModelCardGenerator
+
+The main class for generating model cards.
 
 ```python
-from modelcard_generator import ModelCardGenerator, CardConfig
+from modelcard_generator import ModelCardGenerator, CardConfig, CardFormat
 
-class ModelCardGenerator:
-    def __init__(self, config: Optional[CardConfig] = None):
-        """
-        Initialize the ModelCard Generator.
-        
-        Args:
-            config: Configuration object for generation settings
-        """
-        
-    def generate(
-        self,
-        eval_results: Optional[Union[str, Dict]] = None,
-        training_logs: Optional[Union[str, List[str]]] = None,
-        model_path: Optional[str] = None,
-        output_path: Optional[str] = None,
-        format: Optional[str] = None,
-        **kwargs
-    ) -> ModelCard:
-        """
-        Generate a model card from provided data sources.
-        
-        Args:
-            eval_results: Path to evaluation results or dict
-            training_logs: Path(s) to training logs
-            model_path: Path to the model directory
-            output_path: Where to save the generated card
-            format: Output format ('huggingface', 'google', 'eu_cra')
-            **kwargs: Additional parameters for specific formats
-            
-        Returns:
-            ModelCard: Generated model card object
-            
-        Raises:
-            ValidationError: If input data is invalid
-            GenerationError: If card generation fails
-        """
+# Basic usage
+generator = ModelCardGenerator()
+card = generator.generate(eval_results="results.json")
+
+# With configuration
+config = CardConfig(
+    format=CardFormat.HUGGINGFACE,
+    include_ethical_considerations=True,
+    include_bias_analysis=True
+)
+generator = ModelCardGenerator(config)
 ```
 
-#### Enhanced Features (Production Extensions)
+#### Methods
 
+##### `generate()`
+
+Generate a model card from various sources.
+
+**Parameters:**
+- `eval_results` (str|Path|dict, optional): Evaluation results file or data
+- `training_history` (str|Path, optional): Training history/logs file
+- `dataset_info` (str|Path|dict, optional): Dataset information file or data
+- `model_config` (str|Path|dict, optional): Model configuration file or data
+- `**kwargs`: Additional metadata
+
+**Returns:** `ModelCard` instance
+
+**Example:**
 ```python
-from modelcard_generator.core.enhanced_generator import EnhancedModelCardGenerator
-
-class EnhancedModelCardGenerator(ModelCardGenerator):
-    def __init__(
-        self,
-        config: Optional[CardConfig] = None,
-        enable_resilience: bool = True,
-        enable_caching: bool = True,
-        enable_monitoring: bool = True
-    ):
-        """
-        Initialize enhanced generator with production features.
-        
-        Args:
-            config: Base configuration
-            enable_resilience: Enable fault tolerance patterns
-            enable_caching: Enable intelligent caching
-            enable_monitoring: Enable metrics collection
-        """
-        
-    async def generate_batch(
-        self,
-        batch_specs: List[Dict[str, Any]],
-        max_concurrency: int = 10,
-        progress_callback: Optional[Callable] = None
-    ) -> List[ModelCard]:
-        """
-        Generate multiple model cards concurrently.
-        
-        Args:
-            batch_specs: List of generation specifications
-            max_concurrency: Maximum concurrent generations
-            progress_callback: Optional progress reporting function
-            
-        Returns:
-            List of generated model cards
-        """
-        
-    def get_generation_statistics(self) -> Dict[str, Any]:
-        """Get detailed statistics about generation operations."""
-        
-    def get_performance_report(self) -> Dict[str, Any]:
-        """Get comprehensive performance metrics."""
-```
-
-### Configuration
-
-#### CardConfig
-
-```python
-from modelcard_generator.core.models import CardConfig, CardFormat
-
-@dataclass
-class CardConfig:
-    format: CardFormat = CardFormat.HUGGINGFACE
-    template_path: Optional[str] = None
-    output_dir: str = "model_cards"
-    validate_output: bool = True
-    include_plots: bool = True
-    auto_infer_metadata: bool = True
-    compliance_standards: List[str] = field(default_factory=list)
-    custom_sections: Dict[str, Any] = field(default_factory=dict)
-```
-
-#### Advanced Configuration
-
-```python
-from modelcard_generator.core.config import ModelCardConfig
-
-config = ModelCardConfig(
-    # Logging configuration
-    logging=LoggingConfig(
-        level="INFO",
-        structured=True,
-        max_bytes=10*1024*1024
-    ),
-    
-    # Security settings
-    security=SecurityConfig(
-        enable_scanning=True,
-        max_file_size=100*1024*1024,
-        scan_content=True
-    ),
-    
-    # Validation rules
-    validation=ValidationConfig(
-        min_completeness_score=0.8,
-        enforce_compliance=True,
-        compliance_standards=["eu_cra", "gdpr"]
-    ),
-    
-    # Performance tuning
-    cache=CacheConfig(
-        enabled=True,
-        ttl_seconds=3600,
-        max_size_mb=500
-    )
+card = generator.generate(
+    eval_results="eval.json",
+    training_history="training.log",
+    dataset_info="dataset.json",
+    model_config="config.yaml",
+    model_name="sentiment-classifier",
+    authors=["Alice", "Bob"]
 )
 ```
 
-### Resilience Patterns
+##### `generate_batch()`
 
-#### Circuit Breaker and Fault Tolerance
+Generate multiple model cards concurrently.
 
+**Parameters:**
+- `tasks` (List[Dict]): List of task dictionaries
+- `max_workers` (int, optional): Maximum concurrent workers
+
+**Returns:** `List[ModelCard]`
+
+**Example:**
 ```python
-from modelcard_generator.core.resilience import (
-    resilient_operation,
-    AdaptiveTimeout,
-    Bulkhead,
-    GracefulDegradation
-)
-
-# Use resilient decorator
-@resilient_operation(
-    max_retries=3,
-    backoff_multiplier=2.0,
-    timeout_seconds=30.0
-)
-async def external_api_call():
-    # Your API call logic
-    pass
-
-# Manual resilience patterns
-async def example_usage():
-    # Adaptive timeout based on historical performance
-    timeout_manager = AdaptiveTimeout(
-        initial_timeout=10.0,
-        max_timeout=60.0
-    )
-    
-    # Resource isolation
-    bulkhead = Bulkhead(max_concurrent=5)
-    
-    # Graceful degradation
-    degradation = GracefulDegradation({
-        "high_quality": lambda: full_generation(),
-        "basic": lambda: minimal_generation(),
-        "fallback": lambda: template_only()
-    })
+tasks = [
+    {"eval_results": "eval1.json", "model_name": "model1"},
+    {"eval_results": "eval2.json", "model_name": "model2"},
+]
+cards = generator.generate_batch(tasks, max_workers=4)
 ```
 
-### Intelligent Caching
+### ModelCard
 
-#### Multi-layer Cache System
+Represents a model card with all sections and metadata.
+
+#### Properties
+
+- `model_details`: Model information (name, version, authors, etc.)
+- `intended_use`: Description of intended use cases
+- `training_details`: Training process information
+- `evaluation_results`: Performance metrics
+- `ethical_considerations`: Bias risks and mitigation
+- `limitations`: Known limitations and recommendations
+
+#### Methods
+
+##### `add_metric(name, value, **kwargs)`
+
+Add a performance metric.
 
 ```python
-from modelcard_generator.core.intelligent_cache import (
-    IntelligentCache,
-    cache_with_intelligence,
-    initialize_intelligent_cache
-)
-
-# Initialize global cache
-await initialize_intelligent_cache(
-    memory_cache_mb=100,
-    disk_cache_mb=1000,
-    redis_url="redis://localhost:6379",
-    enable_prefetching=True
-)
-
-# Use caching decorator
-@cache_with_intelligence(
-    cache_instance=global_cache,
-    ttl_seconds=3600,
-    cache_key_func=lambda model_id, version: f"{model_id}:{version}"
-)
-async def expensive_computation(model_id: str, version: str):
-    # Expensive operation that benefits from caching
-    return results
-
-# Manual cache operations
-cache = IntelligentCache()
-await cache.start()
-
-# Store and retrieve
-await cache.put("key", data, ttl_seconds=3600)
-result = await cache.get("key")
-
-# Get comprehensive statistics
-stats = cache.get_comprehensive_stats()
+card.add_metric("accuracy", 0.95)
+card.add_metric("f1_score", 0.92, confidence_interval=[0.90, 0.94])
 ```
 
-### Distributed Processing
+##### `render(format="markdown")`
 
-#### Task Queue and Auto-scaling
+Render the model card in specified format.
+
+**Formats:** "markdown", "html", "json"
 
 ```python
-from modelcard_generator.core.distributed_processing import (
-    DistributedTaskQueue,
-    DistributedWorker,
-    AutoScaler
-)
-
-# Set up distributed processing
-task_queue = DistributedTaskQueue(
-    redis_url="redis://localhost:6379",
-    queue_name="modelcard_generation"
-)
-
-# Submit tasks
-task_id = await task_queue.submit_task(
-    "generate_modelcard",
-    {
-        "eval_results": "path/to/results.json",
-        "model_path": "path/to/model",
-        "format": "huggingface"
-    },
-    priority=1
-)
-
-# Check task status
-status = await task_queue.get_task_status(task_id)
-result = await task_queue.get_task_result(task_id)
-
-# Auto-scaling worker pool
-autoscaler = AutoScaler(
-    min_workers=2,
-    max_workers=10,
-    scale_up_threshold=0.8,
-    scale_down_threshold=0.2
-)
-
-await autoscaler.start()
+markdown_content = card.render("markdown")
+html_content = card.render("html") 
+json_content = card.render("json")
 ```
 
-### Monitoring and Metrics
+##### `save(path)`
 
-#### Performance Monitoring
+Save the model card to file.
 
 ```python
-from modelcard_generator.monitoring.enhanced_metrics import (
-    SystemMonitor,
-    PerformanceTracker,
-    AlertManager
-)
+card.save("MODEL_CARD.md")
+```
 
-# System monitoring
-monitor = SystemMonitor()
-await monitor.start_monitoring()
+##### `export_jsonld(path)`
 
-# Performance tracking
-tracker = PerformanceTracker()
+Export as JSON-LD for machine reading.
 
-# Track operation performance
-async with tracker.track_operation("model_card_generation") as context:
-    context.add_metadata({"format": "huggingface", "size": "large"})
-    # Your generation logic here
-    result = await generate_card()
-    context.set_result_size(len(str(result)))
+```python
+card.export_jsonld("model_card.jsonld")
+```
 
-# Get performance metrics
-metrics = tracker.get_metrics_summary()
+## Configuration
 
-# Alert management
-alert_manager = AlertManager()
-alert_manager.add_alert_rule(
-    "high_error_rate",
-    condition=lambda metrics: metrics.error_rate > 0.1,
-    notification_channels=["email", "slack"]
+### CardConfig
+
+Configuration for model card generation.
+
+```python
+config = CardConfig(
+    format=CardFormat.HUGGINGFACE,           # Output format
+    include_ethical_considerations=True,      # Include ethics section
+    include_carbon_footprint=True,          # Include carbon footprint
+    include_bias_analysis=True,              # Include bias analysis
+    regulatory_standard="gdpr",              # Compliance standard
+    template_name="nlp_classification",      # Template to use
+    auto_populate=True,                      # Auto-populate missing fields
+    validation_strict=False,                 # Strict validation mode
+    output_format="markdown"                 # Default output format
 )
 ```
 
-### Security Scanning
+### CardFormat
 
-#### Content Security and Compliance
+Supported output formats:
+
+- `CardFormat.HUGGINGFACE`: Hugging Face model card format
+- `CardFormat.GOOGLE`: Google Model Cards format
+- `CardFormat.EU_CRA`: EU CRA compliant format
+- `CardFormat.CUSTOM`: Custom format
+
+## Generation Methods
+
+### From Evaluation Results
 
 ```python
-from modelcard_generator.security.advanced_scanner import (
-    ContentSecurityScanner,
-    ModelSecurityValidator,
-    SecurityReportGenerator
+# From JSON file
+card = generator.generate(eval_results="results.json")
+
+# From dictionary
+results = {
+    "accuracy": 0.95,
+    "f1_score": 0.92,
+    "model_name": "classifier"
+}
+card = generator.generate(eval_results=results)
+```
+
+### From MLflow
+
+```python
+card = generator.from_mlflow("model_name", version=2)
+```
+
+### From Weights & Biases
+
+```python
+card = generator.from_wandb("run_id", project="project_name")
+```
+
+## Validation
+
+### Enhanced Validation
+
+```python
+from modelcard_generator.core.enhanced_validation import validate_model_card_enhanced
+
+result = await validate_model_card_enhanced(
+    card, 
+    enable_auto_fix=True,
+    learn_patterns=True
 )
 
-# Content security scanning
-scanner = ContentSecurityScanner()
+print(f"Valid: {result.is_valid}")
+print(f"Score: {result.overall_score:.2%}")
+print(f"Issues: {len(result.issues)}")
+```
 
-# Scan model card content
-scan_result = await scanner.scan_content(model_card_text)
+### Validation Result
 
-if scan_result.has_issues():
-    for issue in scan_result.issues:
-        print(f"Security issue: {issue.type} - {issue.description}")
+```python
+class ValidationResult:
+    is_valid: bool                    # Overall validity
+    overall_score: float             # Quality score (0-1)
+    issues: List[ValidationIssue]    # Found issues
+    suggestions: List[str]           # Improvement suggestions
+    auto_fixes_applied: List[str]    # Applied auto-fixes
+    validation_time_ms: float        # Validation time
+```
 
-# Model security validation
-validator = ModelSecurityValidator()
-validation_result = await validator.validate_model(model_path)
+### Validation Issue
 
-# Generate comprehensive security report
-report_generator = SecurityReportGenerator()
-security_report = await report_generator.generate_report([
-    scan_result,
-    validation_result
-])
+```python
+class ValidationIssue:
+    category: ValidationCategory      # Issue category
+    severity: ValidationSeverity     # Issue severity
+    message: str                     # Description
+    field_path: str                  # Field location
+    suggested_fix: str               # Fix suggestion
+    auto_fixable: bool              # Can be auto-fixed
+```
+
+## Formats
+
+### Hugging Face Format
+
+Standard Hugging Face model card with README.md structure.
+
+```python
+config = CardConfig(format=CardFormat.HUGGINGFACE)
+card = generator.generate(eval_results="results.json")
+card.save("README.md")
+```
+
+### Google Model Cards
+
+Structured Google Model Cards format with schema validation.
+
+```python
+from modelcard_generator.formats import GoogleModelCard
+
+card = GoogleModelCard()
+card.model_details.name = "text-classifier"
+card.add_performance_metric("accuracy", 0.95)
+```
+
+### EU CRA Compliant
+
+European Cyber Resilience Act compliant format.
+
+```python
+from modelcard_generator.formats import EUCRAModelCard
+
+card = EUCRAModelCard()
+card.risk_assessment(
+    risk_level="limited",
+    mitigation_measures=["Human oversight", "Regular audits"]
+)
 ```
 
 ## CLI Interface
 
-### Basic Commands
+### Commands
+
+#### Generate
 
 ```bash
-# Generate model card
-mcg generate --eval-results results.json --format huggingface --output MODEL_CARD.md
+# Basic generation
+mcg generate results.json --output MODEL_CARD.md
 
-# Batch generation
-mcg generate-batch --config batch_config.yaml --max-concurrency 5
+# With multiple sources
+mcg generate \
+  --eval results.json \
+  --training training.log \
+  --dataset dataset.json \
+  --config model_config.yaml \
+  --output card.md
 
-# Validate existing card
+# With metadata
+mcg generate results.json \
+  --model-name "classifier" \
+  --model-version "1.2.0" \
+  --authors "Alice,Bob" \
+  --license "apache-2.0"
+```
+
+#### Validate
+
+```bash
+# Validate model card
 mcg validate MODEL_CARD.md --standard huggingface
 
-# Check for drift
-mcg check-drift MODEL_CARD.md --new-data recent_results.json
+# Check compliance
+mcg validate MODEL_CARD.md --standard eu-cra --min-score 0.9
 
-# Security scanning
-mcg scan-security MODEL_CARD.md --detailed-report
-
-# Performance monitoring
-mcg monitor --duration 3600 --export-metrics metrics.json
+# Generate validation report
+mcg validate MODEL_CARD.md --output validation_report.json
 ```
 
-### Advanced Commands
+#### Check Drift
 
 ```bash
-# Enhanced generation with all features
-mcg generate-enhanced \
-    --eval-results results.json \
-    --training-logs logs/ \
-    --format huggingface \
-    --enable-caching \
-    --enable-resilience \
-    --enable-monitoring \
-    --output-dir ./cards/
+# Check for metric drift
+mcg check-drift MODEL_CARD.md --against new_results.json
 
-# Distributed processing
-mcg process-distributed \
-    --task-specs tasks.json \
-    --redis-url redis://localhost:6379 \
-    --workers 5
+# With custom threshold
+mcg check-drift MODEL_CARD.md --against results.json --threshold 0.05
 
-# Cache management
-mcg cache status
-mcg cache clear --confirm
-mcg cache warm --patterns patterns.yaml
-
-# System diagnostics
-mcg diagnose --check-all --export-report diagnosis.json
+# Auto-update on drift
+mcg check-drift MODEL_CARD.md --against results.json --update
 ```
 
-## REST API (Future Enhancement)
+#### Initialize Template
 
-### Endpoints
+```bash
+# Create basic template
+mcg init --format huggingface
 
-```http
-# Generate model card
-POST /api/v1/generate
-Content-Type: application/json
+# Create domain-specific template
+mcg init --format huggingface --template llm --output LLM_CARD.md
+```
 
-{
-  "eval_results": {...},
-  "training_logs": [...],
-  "format": "huggingface",
-  "config": {...}
-}
+### CLI Options
 
-# Get generation status
-GET /api/v1/tasks/{task_id}/status
+- `--format`: Output format (huggingface, google, eu-cra)
+- `--output`, `-o`: Output file path
+- `--verbose`, `-v`: Enable verbose logging
+- `--config-file`: Configuration file path
+- `--auto-populate`: Auto-populate missing sections
+- `--include-ethical`: Include ethical considerations
+- `--regulatory-standard`: Compliance standard
 
-# Get generated card
-GET /api/v1/tasks/{task_id}/result
+## Internationalization
 
-# Health check
-GET /health
+### Setting Language
 
-# Metrics
-GET /metrics
+```python
+from modelcard_generator.i18n import set_language, _
+
+# Set language
+set_language("es")  # Spanish
+set_language("fr")  # French
+set_language("de")  # German
+
+# Get translated text
+title = _("model_card.title")  # "Tarjeta del Modelo" in Spanish
+```
+
+### Supported Languages
+
+- `en`: English
+- `es`: Spanish (Español)
+- `fr`: French (Français)  
+- `de`: German (Deutsch)
+- `ja`: Japanese (日本語)
+- `zh`: Chinese (中文)
+
+### Localized Model Cards
+
+```python
+from modelcard_generator.i18n import LocalizedModelCard
+
+# Create localized card
+localized = LocalizedModelCard(language="es")
+title = localized.get_section_title("model_details")  # "Detalles del Modelo"
 ```
 
 ## Error Handling
 
-### Exception Hierarchy
+### Exceptions
 
 ```python
 from modelcard_generator.core.exceptions import (
     ModelCardError,
     ValidationError,
-    GenerationError,
-    ResourceError,
-    ConfigurationError
+    DataSourceError,
+    SecurityError
 )
 
 try:
     card = generator.generate(eval_results="invalid.json")
+except DataSourceError as e:
+    print(f"Data source error: {e}")
 except ValidationError as e:
-    print(f"Validation failed: {e.message}")
-    print(f"Field: {e.field}")
-    print(f"Suggestions: {e.suggestions}")
-except GenerationError as e:
-    print(f"Generation failed: {e.message}")
-    print(f"Phase: {e.phase}")
-    print(f"Recoverable: {e.recoverable}")
-except ResourceError as e:
-    print(f"Resource issue: {e.resource_type}")
-    print(f"Error: {e.message}")
+    print(f"Validation error: {e}")
+except ModelCardError as e:
+    print(f"General error: {e}")
 ```
 
-## Integration Examples
+## Examples
 
-### MLflow Integration
+### Complete Example
 
 ```python
-import mlflow
+from modelcard_generator import (
+    ModelCardGenerator, 
+    CardConfig, 
+    CardFormat
+)
+
+# Configure generator
+config = CardConfig(
+    format=CardFormat.HUGGINGFACE,
+    include_ethical_considerations=True,
+    regulatory_standard="gdpr",
+    auto_populate=True
+)
+
+generator = ModelCardGenerator(config)
+
+# Generate comprehensive model card
+card = generator.generate(
+    eval_results="evaluation_results.json",
+    training_history="training.log",
+    dataset_info="dataset_info.json",
+    model_config="model_config.yaml",
+    model_name="sentiment-classifier-v2",
+    model_version="2.1.0",
+    authors=["Data Science Team"],
+    license="apache-2.0",
+    intended_use="Sentiment analysis for product reviews"
+)
+
+# Validate
+from modelcard_generator.core.enhanced_validation import validate_model_card_enhanced
+
+result = await validate_model_card_enhanced(card, enable_auto_fix=True)
+print(f"Validation score: {result.overall_score:.2%}")
+
+# Save in multiple formats
+card.save("README.md")                    # Markdown
+card.export_jsonld("model_card.jsonld")  # JSON-LD
+
+# Render as HTML
+html_content = card.render("html")
+Path("model_card.html").write_text(html_content)
+```
+
+### Batch Processing
+
+```python
+# Process multiple models
+tasks = []
+for i in range(10):
+    task = {
+        "eval_results": f"results/model_{i}_eval.json",
+        "model_config": f"configs/model_{i}_config.yaml",
+        "model_name": f"model_{i}",
+        "model_version": "1.0.0"
+    }
+    tasks.append(task)
+
+# Generate all cards concurrently
+cards = generator.generate_batch(tasks, max_workers=4)
+
+# Save all cards
+for i, card in enumerate(cards):
+    card.save(f"cards/MODEL_CARD_{i}.md")
+```
+
+### Integration with CI/CD
+
+```python
 from modelcard_generator import ModelCardGenerator
+from modelcard_generator.core.drift_detector import DriftDetector
 
-# Generate card from MLflow run
-with mlflow.start_run():
-    # Your training code
-    mlflow.log_metrics({"accuracy": 0.95})
-    mlflow.log_artifacts("model/")
-    
-    # Generate model card
-    generator = ModelCardGenerator()
-    card = generator.generate_from_mlflow_run(
-        run_id=mlflow.active_run().info.run_id,
-        format="huggingface"
-    )
-```
-
-### Weights & Biases Integration
-
-```python
-import wandb
-from modelcard_generator.integrations.wandb import WandBCollector
-
-# Generate from W&B run
-collector = WandBCollector(api_key="your_key")
-data = collector.collect_from_run(
-    project="my-project",
-    run_id="run_123"
-)
-
+# Generate card from CI artifacts
 generator = ModelCardGenerator()
-card = generator.generate(**data)
-```
-
-### GitHub Actions Integration
-
-```yaml
-name: Generate Model Card
-on:
-  push:
-    paths: ['models/**']
-
-jobs:
-  generate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: modelcard-generator/action@v1
-        with:
-          eval-results: 'results/metrics.json'
-          training-logs: 'logs/'
-          format: 'huggingface'
-          output: 'MODEL_CARD.md'
-```
-
-## Performance Guidelines
-
-### Optimization Best Practices
-
-1. **Enable Caching**: Reduces computation for repeated operations
-2. **Use Batch Processing**: More efficient for multiple cards
-3. **Configure Timeouts**: Prevent hanging operations
-4. **Monitor Memory**: Use profiling for large models
-5. **Leverage Parallelization**: Process independent tasks concurrently
-
-### Resource Management
-
-```python
-# Memory-efficient processing
-config = ModelCardConfig(
-    cache=CacheConfig(max_size_mb=200),  # Limit cache size
-    validation=ValidationConfig(
-        min_completeness_score=0.7  # Reduce validation overhead
-    )
+card = generator.generate(
+    eval_results="ci_artifacts/eval_results.json",
+    model_config="ci_artifacts/model_config.yaml"
 )
 
-# Batch processing with memory management
-async def process_large_batch(specs: List[Dict]):
-    # Process in chunks to manage memory
-    chunk_size = 10
-    for i in range(0, len(specs), chunk_size):
-        chunk = specs[i:i + chunk_size]
-        results = await generator.generate_batch(
-            chunk,
-            max_concurrency=5
-        )
-        # Process results and free memory
-        yield results
+# Check for drift against previous version
+detector = DriftDetector()
+drift_report = detector.check(
+    card=card,
+    new_eval_results="ci_artifacts/eval_results.json",
+    thresholds={"accuracy": 0.02, "f1_score": 0.03}
+)
+
+if drift_report.has_drift:
+    print("⚠️ Model drift detected!")
+    for change in drift_report.significant_changes:
+        print(f"{change.metric_name}: {change.old_value} → {change.new_value}")
+    
+    # Fail CI if drift is significant
+    if len(drift_report.significant_changes) > 2:
+        exit(1)
+
+# Save card for deployment
+card.save("deployment/MODEL_CARD.md")
 ```
 
-This API reference provides comprehensive documentation for all the enhanced features implemented during the autonomous SDLC execution, maintaining backward compatibility while exposing powerful new capabilities for production environments.
+## Best Practices
+
+1. **Always validate** model cards before deployment
+2. **Use auto-population** to reduce manual work
+3. **Enable ethical considerations** for responsible AI
+4. **Check for drift** regularly in production
+5. **Use appropriate compliance** standards for your region
+6. **Batch process** multiple cards for efficiency
+7. **Version control** model cards with your models
+8. **Automate generation** in CI/CD pipelines

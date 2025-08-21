@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: modelcard-generator
+    region: ap-southeast-1
+    tier: production
+  name: modelcard-generator-ap-southeast-1
+  namespace: modelcard-system
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: modelcard-generator
+      region: ap-southeast-1
+  template:
+    metadata:
+      labels:
+        app: modelcard-generator
+        region: ap-southeast-1
+    spec:
+      containers:
+      - env:
+        - name: REGION
+          value: ap-southeast-1
+        - name: DEFAULT_LANGUAGE
+          value: en
+        - name: SUPPORTED_LANGUAGES
+          value: en,zh
+        - name: COMPLIANCE_FRAMEWORKS
+          value: PDPA,CYBERSECURITY_ACT
+        - name: DATA_RESIDENCY
+          value: APAC
+        image: modelcard-generator:latest
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        name: modelcard-generator
+        ports:
+        - containerPort: 8080
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          limits:
+            cpu: 500m
+            memory: 1Gi
+          requests:
+            cpu: 250m
+            memory: 512Mi
