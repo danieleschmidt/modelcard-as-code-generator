@@ -1,16 +1,66 @@
-"""Autonomous quality gates and comprehensive testing framework."""
+"""Autonomous quality gates and comprehensive testing framework with research integration."""
 
 import asyncio
 import inspect
+import json
+import statistics
 import time
-from datetime import datetime
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+
+import numpy as np
+from scipy import stats
 
 from ..core.logging_config import get_logger
 from ..core.advanced_monitoring import metrics_collector
+from ..core.models import ModelCard
+from ..research.research_analyzer import ResearchAnalyzer, ResearchFinding
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class QualityGateResult:
+    """Enhanced result from a quality gate check."""
+    gate_name: str
+    passed: bool
+    score: float
+    threshold: float
+    evidence: List[str]
+    recommendations: List[str]
+    execution_time_ms: float
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    auto_fix_applied: bool = False
+    research_insights: List[str] = field(default_factory=list)
+
+
+@dataclass
+class QualityGateConfig:
+    """Enhanced configuration for quality gates."""
+    name: str
+    enabled: bool = True
+    threshold: float = 0.8
+    weight: float = 1.0
+    auto_improve: bool = True
+    research_integration: bool = True
+    parameters: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class QualityAssessment:
+    """Overall quality assessment result with research integration."""
+    overall_score: float
+    total_gates: int
+    passed_gates: int
+    failed_gates: int
+    gate_results: List[QualityGateResult]
+    research_insights: List[ResearchFinding]
+    improvement_actions: List[str]
+    risk_level: str
+    confidence_score: float
+    execution_duration_ms: float
 
 
 class QualityGate:
