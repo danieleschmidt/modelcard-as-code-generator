@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: modelcard-config
+  namespace: modelcard-system
+data:
+  production.json: |
+    {
+      "environment": "production",
+      "logging": {
+        "level": "info",
+        "format": "json"
+      },
+      "cache": {
+        "type": "redis",
+        "host": "redis-service",
+        "port": 6379,
+        "ttl": 3600
+      },
+      "database": {
+        "type": "postgresql", 
+        "host": "postgres-service",
+        "port": 5432,
+        "name": "modelcards"
+      },
+      "performance": {
+        "max_workers": 4,
+        "batch_size": 50,
+        "timeout": 30
+      }
+    }
