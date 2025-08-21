@@ -1,15 +1,87 @@
-"""Adaptive resilience patterns for production-ready model card generation."""
+"""Advanced adaptive resilience patterns with self-healing capabilities."""
 
 import asyncio
+import json
+import math
+import statistics
 import time
+from collections import defaultdict, deque
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any, Callable, Dict, List, Optional, TypeVar
+from enum import Enum
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union, TypeVar
+
+import numpy as np
+from scipy import stats
 
 from .logging_config import get_logger
+from .exceptions import ModelCardError, ValidationError
 
 logger = get_logger(__name__)
 
 T = TypeVar('T')
+
+
+class ResiliencePattern(Enum):
+    """Types of resilience patterns."""
+    CIRCUIT_BREAKER = "circuit_breaker"
+    BULKHEAD = "bulkhead"
+    RETRY = "retry"
+    TIMEOUT = "timeout"
+    RATE_LIMITER = "rate_limiter"
+    CACHE_ASIDE = "cache_aside"
+    GRACEFUL_DEGRADATION = "graceful_degradation"
+    HEALTH_CHECK = "health_check"
+
+
+class CircuitState(Enum):
+    """Circuit breaker states."""
+    CLOSED = "closed"
+    OPEN = "open"
+    HALF_OPEN = "half_open"
+
+
+@dataclass
+class ResilienceMetrics:
+    """Metrics for resilience monitoring."""
+    success_count: int = 0
+    failure_count: int = 0
+    timeout_count: int = 0
+    circuit_breaker_trips: int = 0
+    average_response_time: float = 0.0
+    error_rate: float = 0.0
+    availability: float = 1.0
+    recovery_time: float = 0.0
+    last_failure: Optional[datetime] = None
+    last_success: Optional[datetime] = None
+
+
+@dataclass
+class HealthCheckResult:
+    """Result of a health check."""
+    service_name: str
+    healthy: bool
+    response_time_ms: float
+    timestamp: datetime
+    details: Dict[str, Any] = field(default_factory=dict)
+    error_message: Optional[str] = None
+
+
+@dataclass
+class ResilienceConfig:
+    """Configuration for resilience patterns."""
+    enabled_patterns: Set[ResiliencePattern] = field(default_factory=set)
+    circuit_breaker_threshold: int = 5
+    circuit_breaker_timeout: float = 60.0
+    retry_attempts: int = 3
+    retry_backoff_factor: float = 2.0
+    timeout_seconds: float = 30.0
+    rate_limit_requests_per_second: float = 100.0
+    health_check_interval: float = 30.0
+    graceful_degradation_enabled: bool = True
+    bulkhead_pool_size: int = 10
+    adaptive_thresholds: bool = True
 
 
 class AdaptiveCircuitBreaker:
