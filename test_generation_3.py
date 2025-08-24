@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from src.modelcard_generator import ModelCardGenerator, CardConfig, CardFormat
-from src.modelcard_generator.core.performance_optimizer import QuantumPerformanceOptimizer
+from src.modelcard_generator.core.quantum_performance_optimizer import QuantumInspiredOptimizer
 from src.modelcard_generator.core.distributed_processing import DistributedProcessor
 from src.modelcard_generator.core.intelligent_cache import IntelligentCacheManager
 from src.modelcard_generator.core.resource_optimizer import ResourceOptimizer
@@ -18,8 +18,11 @@ async def test_performance_optimization():
     """Test performance optimization features."""
     print("⚡ Testing Generation 3: Performance Optimization & Scaling")
     
-    # Initialize performance components
-    optimizer = QuantumPerformanceOptimizer()
+    # Initialize performance components with proper configuration
+    from src.modelcard_generator.core.quantum_performance_optimizer import OptimizationConfig
+    
+    opt_config = OptimizationConfig()
+    optimizer = QuantumInspiredOptimizer(opt_config)
     cache_manager = IntelligentCacheManager()
     resource_optimizer = ResourceOptimizer()
     
