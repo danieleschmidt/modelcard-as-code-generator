@@ -1,5 +1,5 @@
-"""Command line interface for model card generator."""
+"""CLI package."""
 
 from .main import cli, main
 
-__all__ = ["main", "cli"]
+__all__ = ["cli", "main"]

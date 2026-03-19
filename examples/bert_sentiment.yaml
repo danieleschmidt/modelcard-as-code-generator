@@ -1,0 +1,113 @@
+# Example: Fine-tuned BERT for sentiment analysis
+# Run: mcg generate examples/bert_sentiment.yaml -o examples/bert_sentiment_card.md
+
+model_details:
+  name: bert-sentiment-amazon
+  version: "1.2.0"
+  description: >
+    BERT-base-uncased fine-tuned on Amazon product reviews for binary
+    sentiment classification (positive / negative). Trained by the
+    OpenClaw ML team as a reference example.
+  authors:
+    - Daniel Schmidt
+  license: Apache-2.0
+  base_model: bert-base-uncased
+  library_name: transformers
+  language:
+    - en
+  tags:
+    - text-classification
+    - sentiment-analysis
+    - bert
+  datasets:
+    - amazon-reviews-v2
+
+intended_use: >
+  Classify product reviews as positive or negative sentiment.
+  Designed for use in e-commerce analytics pipelines.
+  Target users: data science teams at retail companies.
+  NOT intended for mental health, medical, or legal applications.
+
+training_details:
+  framework: PyTorch
+  model_architecture: BERT (bert-base-uncased, 110M params)
+  training_data:
+    - amazon-reviews-v2 (2.4M reviews, balanced 50/50 split)
+  preprocessing: >
+    Tokenised with bert-base-uncased tokeniser (max_length=256,
+    truncation=True, padding=max_length). Removed reviews < 10 words.
+  hardware: "2x NVIDIA A100 40GB"
+  training_time: "6 hours"
+  hyperparameters:
+    learning_rate: 2.0e-5
+    batch_size: 32
+    epochs: 4
+    warmup_ratio: 0.1
+    weight_decay: 0.01
+    max_length: 256
+
+evaluation_results:
+  - name: accuracy
+    value: 0.942
+    dataset: amazon-reviews-test (held-out 10%)
+    confidence_interval: [0.939, 0.945]
+  - name: f1
+    value: 0.941
+    dataset: amazon-reviews-test
+  - name: precision
+    value: 0.938
+    dataset: amazon-reviews-test
+  - name: recall
+    value: 0.944
+    dataset: amazon-reviews-test
+  - name: roc_auc
+    value: 0.987
+    dataset: amazon-reviews-test
+  - name: accuracy
+    value: 0.891
+    dataset: yelp-reviews-ood
+    slice: out-of-domain
+
+ethical_considerations:
+  bias_risks:
+    - "Model accuracy is 3–5 pp lower on reviews written in non-standard English."
+    - "Negative-sentiment reviews by minority demographic groups may be under-detected."
+  bias_mitigation:
+    - "Evaluated on demographic slices; results documented in evaluation section."
+    - "Regular re-evaluation recommended as review language evolves."
+  sensitive_attributes:
+    - dialect
+    - review_length
+  fairness_metrics:
+    demographic_parity_ratio: 0.96
+    equalized_odds_difference: 0.04
+
+limitations:
+  known_limitations:
+    - "Trained on Amazon reviews; may not generalise to other review domains."
+    - "Accuracy drops ~5 pp on very short reviews (< 20 words)."
+    - "Does not handle mixed-sentiment or neutral reviews well."
+    - "English-only; multilingual reviews will produce unreliable results."
+  out_of_scope_uses:
+    - "Emotion detection or nuanced sentiment (beyond positive/negative)."
+    - "High-stakes decisions (e.g. employment, credit, healthcare)."
+    - "Real-time moderation without human oversight."
+  recommendations:
+    - "Always validate on your own domain data before production use."
+    - "Use threshold tuning (default 0.5) to balance precision/recall for your use case."
+
+custom_sections:
+  Carbon Footprint: |
+    Training was tracked with CodeCarbon.
+    Estimated emissions: **1.2 kg CO₂e** (equivalent to ~5 km driven).
+    Hardware: 2x A100, ~6 hours @ ~250W each.
+  Citation: |
+    If you use this model, please cite:
+    ```
+    @misc{bert-sentiment-amazon-2026,
+      author = {Schmidt, Daniel},
+      title  = {bert-sentiment-amazon},
+      year   = {2026},
+      url    = {https://github.com/danieleschmidt/modelcard-as-code-generator}
+    }
+    ```

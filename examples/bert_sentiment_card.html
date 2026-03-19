@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>bert-sentiment-amazon</title>
+<style>
+body { font-family: Arial, sans-serif; margin: 40px; }
+h1 { color: #333; }
+h2 { color: #666; border-bottom: 1px solid #ddd; }
+ul { margin-left: 20px; }
+</style>
+</head><body>
+<p># bert-sentiment-amazon</p><p>BERT-base-uncased fine-tuned on Amazon product reviews for binary sentiment classification (positive / negative). Trained by the OpenClaw ML team as a reference example.</p><p>
+<h2>Model Details
+<li>**Version**: 1.2.0
+<li>**Authors**: Daniel Schmidt
+<li>**License**: Apache-2.0
+<li>**Base Model**: bert-base-uncased</p><p><h2>Intended Use
+Classify product reviews as positive or negative sentiment. Designed for use in e-commerce analytics pipelines. Target users: data science teams at retail companies. NOT intended for mental health, medical, or legal applications.</p><p>
+<h2>Training Details
+<li>**Framework**: PyTorch
+<li>**Training Data**: amazon-reviews-v2 (2.4M reviews, balanced 50/50 split)
+<li>**Hyperparameters**:
+  - learning_rate: 2e-05
+  - batch_size: 32
+  - epochs: 4
+  - warmup_ratio: 0.1
+  - weight_decay: 0.01
+  - max_length: 256</p><p><h2>Evaluation Results
+<li>**accuracy**: 0.942 (CI: [0.939, 0.945])
+<li>**f1**: 0.941
+<li>**precision**: 0.938
+<li>**recall**: 0.944
+<li>**roc_auc**: 0.987
+<li>**accuracy**: 0.891</p><p><h2>Ethical Considerations
+### Bias Risks
+<li>Model accuracy is 3–5 pp lower on reviews written in non-standard English.
+<li>Negative-sentiment reviews by minority demographic groups may be under-detected.
+### Fairness Metrics
+<li>**demographic_parity_ratio**: 0.96
+<li>**equalized_odds_difference**: 0.04</p><p><h2>Limitations
+<li>Trained on Amazon reviews; may not generalise to other review domains.
+<li>Accuracy drops ~5 pp on very short reviews (< 20 words).
+<li>Does not handle mixed-sentiment or neutral reviews well.
+<li>English-only; multilingual reviews will produce unreliable results.</p><p><h2>Carbon Footprint
+Training was tracked with CodeCarbon.
+Estimated emissions: **1.2 kg CO₂e** (equivalent to ~5 km driven).
+Hardware: 2x A100, ~6 hours @ ~250W each.</p><p>
+<h2>Citation
+If you use this model, please cite:
+```
+@misc{bert-sentiment-amazon-2026,
+  author = {Schmidt, Daniel},
+  title  = {bert-sentiment-amazon},
+  year   = {2026},
+  url    = {https://github.com/danieleschmidt/modelcard-as-code-generator}
+}
+```
+</p>
+</body></html>

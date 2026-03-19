@@ -1,8 +1,6 @@
-"""Main entry point for the model card generator package."""
-
-import sys
+"""Enable `python -m modelcard_generator`."""
 
 from .cli.main import main
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
