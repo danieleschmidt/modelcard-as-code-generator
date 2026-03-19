@@ -224,20 +224,19 @@ class Validator:
             "huggingface": {
                 "required_sections": [
                     "model_details.name",
-                    "model_details.description",
                     "intended_use",
-                    "training_details.training_data",
                     "evaluation_results"
                 ],
                 "optional_sections": [
+                    "model_details.description",
                     "model_details.license",
                     "model_details.language",
+                    "training_details.training_data",
                     "limitations.known_limitations",
                     "ethical_considerations.bias_risks"
                 ],
                 "field_requirements": {
                     "model_details.name": {"min_length": 1},
-                    "model_details.description": {"min_length": 20},
                     "intended_use": {"min_length": 10}
                 }
             },
